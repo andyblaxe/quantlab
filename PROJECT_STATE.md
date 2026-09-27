@@ -180,3 +180,14 @@ estimates/PIT-membership providers: interface only.
 5. Clustered (by date) bootstrap for event studies; `slow` test marker.
 6. Historical options data adapter (ORATS / Cboe DataShop) → earnings straddle hypothesis
    (framed for rejection: implied moves > realised after spreads).
+7. **Evidence taxonomy (future; not started).** Make three evidence classes explicit:
+   1. **COMPROMISED EVIDENCE** — a material methodological/integrity defect; cannot support
+      conclusions or promotion (today: `INTEGRITY_FAILURE`, grades `BIASED / …`, `PRELIMINARY / …`).
+   2. **INSUFFICIENT EVIDENCE** — valid methodology, but not enough evidence to establish or reject
+      the edge with the required confidence (today: `INSUFFICIENT_EVIDENCE`).
+   3. **VALID NEGATIVE EVIDENCE** — methodologically valid and sufficiently informative, and the edge
+      was not supported (today: plain REJECTED, not distinguished from the other two).
+   Valid negative results must stay permanently linked to the hypothesis and its strategy family, so the
+   automated generator (`research/generator.py`) can detect previously tested failures and avoid
+   re-discovering materially equivalent rejected ideas (needs an equivalence notion over specs:
+   template, universe, feature family, parameter neighbourhood, holding period).
