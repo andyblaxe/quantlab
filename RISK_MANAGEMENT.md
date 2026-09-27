@@ -81,6 +81,20 @@ nothing; if no adjusted edge is positive the output is NO TRADE.
 
 ## 7. Live trading safeguards
 
+**Research-integrity gate (permanent rule; RESEARCH_METHODOLOGY.md §1a).** No capital — paper or,
+in future, real — may be allocated to a signal whose evidence has an unresolved material
+research-integrity failure (survivorship bias, look-ahead, leakage, test contamination, incomplete
+universe, wrong PIT data, execution before the information was available or outside the registered
+execution model, participation above the registered liquidity limit, missing costs,
+corporate-action or timestamp errors, unreliable prices, uncorrected multiple testing, or any other
+defect that could invalidate the edge), or whose evidence is still insufficient under its
+pre-registered thresholds. Liquidity limits are part of each hypothesis's pre-registered criteria
+(`max_participation`, default 10% of ADV) and cannot be loosened after results are seen.
+It is enforced at three points: the catalog refuses ACCEPTED / PAPER_TRADING / LIVE_ELIGIBLE (no
+approval overrides it), `ForwardTester.open` refuses paper trades, and `live_eligibility` fails its
+`research_integrity` criterion. A problem found after promotion therefore stops new paper trades
+immediately; a human then moves the signal to DEGRADED or RETIRED.
+
 Real-money execution is **not implemented**. The `Broker` interface exists so that it could be
 added later; any live broker implementation must refuse to start unless **both**
 `QUANTLAB_LIVE_TRADING_ENABLED=true` **and** `QUANTLAB_LIVE_SAFETY_REVIEW_FILE` points to a signed

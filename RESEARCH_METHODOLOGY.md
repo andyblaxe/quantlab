@@ -20,6 +20,90 @@ RETIRED are terminal; PAPER_TRADING and LIVE_ELIGIBLE need a named human approva
 
 Hypothesis lifecycle (separate): `REGISTERED → EVALUATED → FROZEN → TESTED → CONCLUDED`, forward only.
 
+### 1a. Research-integrity promotion gate — PERMANENT PROJECT RULE
+
+> **A strategy or signal whose results are materially affected by known survivorship bias may NEVER
+> be promoted to ACCEPTED, PAPER_TRADING or LIVE_ELIGIBLE.** More broadly, no signal may be promoted
+> to those statuses while its supporting evidence has an unresolved **material** research-integrity
+> problem. This rule is an architectural requirement: it must not be removed, weakened or bypassed,
+> and changes to it need an explicit decision by the project owner recorded in the registry.
+
+The gate has two layers.
+
+**1. Permanent integrity principles (fixed in code, `research/integrity.py`).** Evidence must be free
+of survivorship bias, look-ahead, leakage and test contamination; use valid point-in-time data with
+correct timestamps and corporate actions; assume execution that happens only after the decision's
+information was available; include appropriate transaction costs and adequate liquidity/capacity
+assumptions; carry sufficient statistical evidence; and be corrected appropriately for multiple
+testing. These cannot be configured away.
+
+**2. Configurable validation thresholds (`research/acceptance.py`, `AcceptanceCriteria`).** The
+numbers that implement some principles — minimum effective sample size, FDR level, the execution
+timings a strategy may use, the maximum participation in ADV — depend on the statistical methodology,
+the independence structure of the observations, the holding period, the instrument and the execution
+model. They are **pre-registered and versioned**: each hypothesis snapshots its criteria (with
+`version`) into its spec hash at registration, so they cannot change after results are seen; a
+variant is a new hypothesis and counts toward the multiple-testing burden. The class defaults are the
+conservative project defaults (effective N ≥ 30, BY q ≤ 0.10, `next_open`/`next_close`, ≤ 10% of ADV)
+and apply wherever no strategy-specific methodology exists. A hypothesis may register different
+values; any value **looser** than the default is refused at registration unless the criteria carry a
+written `justification`. The gate always reads thresholds from the registered hypothesis — never
+from values stored in the signal record.
+
+Two kinds of finding, both non-promotable, kept distinct:
+
+* **RESEARCH-INTEGRITY FAILURE** — the evidence is methodologically compromised. Grade `BIASED / …`
+  (evidence is wrong) or `PRELIMINARY / …` (incomplete or optimistic).
+* **INSUFFICIENT EVIDENCE** — the method may be sound but there is not yet enough evidence: effective
+  sample below the registered minimum, or not significant after the registered multiple-testing
+  correction. Grade `INSUFFICIENT_EVIDENCE / …`. A small sample does not imply bias.
+
+| Principle / problem | Kind | Detection (threshold source) |
+|---|---|---|
+| Survivorship bias | integrity | universe flag `SURVIVORSHIP_BIASED_UNIVERSE` (universe kinds `etf` / `stock_pit` / `stock_current`; undeclared ⇒ `stock_current`) |
+| Look-ahead bias | integrity | automatic truncation test on every feature the hypothesis uses |
+| Data leakage | integrity | pipeline input `leakage`, or a manual finding |
+| Test-set contamination | integrity | vault access count at the untouched test |
+| Materially incomplete universe | integrity | manual finding |
+| Incorrect point-in-time data | integrity | manual finding |
+| Execution before information was available | integrity | execution model not known to occur after the information (e.g. `same_close` on daily bars) — principle, not configurable |
+| Execution outside the registered methodology | integrity | execution not in registered `allowed_executions` |
+| Liquidity / capacity | integrity | cost-model participation > registered `max_participation` |
+| Missing transaction costs | integrity | cost model with no frictions |
+| Corporate-action / timestamp / price errors | integrity | force-saved datasets with those validation errors; `MODEL_PRICED` data; manual findings |
+| Uncorrected multiple testing | integrity | a p-value with no adjusted p-value |
+| Any other defect that could invalidate the edge | integrity | manual finding (`raise_finding`) |
+| Insufficient sample | insufficient evidence | effective N < registered `min_effective_n_inconclusive` |
+| Not significant after correction | insufficient evidence | BY q > registered `fdr_q` |
+
+How it is enforced (in code, not in prompts or reports):
+
+* `catalog.transition()` refuses ACCEPTED / PAPER_TRADING / LIVE_ELIGIBLE when `integrity.assess()`
+  finds a MATERIAL problem, **whoever approves**, and journals `promotion_blocked` with the grade and
+  every blocking finding before refusing. There is no override parameter.
+* The assessment is the union over **every stored version** of the signal record plus open manual
+  findings. Editing a record later cannot remove a detected problem; `Evidence_Grade` and
+  `Integrity_Findings` are derived on every write and cannot be set by hand.
+* Manual findings (`raise_finding`) are closed only by `resolve_finding` with a reason, a resolver and
+  an experiment recorded **after** the finding — new evidence, not approval. MINOR findings are
+  recorded but do not block.
+* The pipeline withholds the one-shot untouched test from non-promotable evidence (the vault stays
+  sealed for a clean re-run), and if a problem appears at the test it stops at VALIDATING.
+* Paper trading refuses new trades, and the live-eligibility check fails, for any signal with an open
+  material finding — including one raised after promotion.
+* Blocked research is kept and analysable. Its `Evidence_Grade` names the kind and the problems,
+  e.g. `PRELIMINARY / SURVIVORSHIP-BIASED`, `BIASED / LOOK-AHEAD`,
+  `INSUFFICIENT_EVIDENCE / INADEQUATE-SAMPLE`, or both parts joined by `; `. The refusal journal
+  lists integrity failures and insufficient evidence separately.
+* If an override is ever introduced, it must move the signal into a separate, explicitly labelled
+  experimental state and must never turn compromised evidence into validated evidence.
+
+Tests: `tests/test_integrity.py` (every category blocks, approval does not override, refusals are
+journaled, history cannot be rewritten, resolution needs new evidence, post-promotion findings stop
+paper/live, thresholds come from the registered methodology, looser thresholds need a registered
+justification, small samples are insufficient evidence rather than bias), `tests/test_pipeline.py` (survivorship and look-ahead end to end),
+`tests/test_catalog_mc_regimes.py` (original survivorship gate).
+
 ## 2. Data partitions
 
 | Partition | Real-data dates (`config/splits.toml`) | Used for |

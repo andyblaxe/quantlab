@@ -10,6 +10,11 @@ Status changes go through :func:`transition`, which enforces the allowed lifecyc
 * REJECTED and RETIRED are terminal. A rejected idea can only come back as a *new* registered
   hypothesis (which counts toward the multiple-testing burden).
 * PAPER_TRADING requires explicit human approval; LIVE_ELIGIBLE requires forward-test evidence.
+* Research-integrity gate (permanent rule, see research/integrity.py): a signal whose evidence has an
+  unresolved material integrity problem (survivorship bias, look-ahead, leakage, test contamination,
+  missing costs, inadequate sample, uncorrected multiple testing, ...) can never reach ACCEPTED,
+  PAPER_TRADING or LIVE_ELIGIBLE, whoever approves it. Every refusal is journaled with its reasons.
+  ``Evidence_Grade`` and ``Integrity_Findings`` are derived on every write and cannot be set by hand.
 """
 
 from __future__ import annotations
@@ -17,6 +22,8 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
+from quantlab.provenance import DataFlag
+from quantlab.research import integrity
 from quantlab.research.registry import Registry
 
 
@@ -43,6 +50,17 @@ ALLOWED: dict[SignalStatus, set[SignalStatus]] = {
     S.RETIRED: set(),
 }
 REQUIRES_APPROVAL = {S.PAPER_TRADING, S.LIVE_ELIGIBLE}
+PROMOTED = {S.ACCEPTED, S.PAPER_TRADING, S.LIVE_ELIGIBLE}
+# data flags that on their own make evidence non-promotable (see integrity.FLAG_ISSUES)
+PROMOTION_BLOCKING_FLAGS = frozenset({DataFlag.SURVIVORSHIP_BIASED_UNIVERSE.value, DataFlag.MODEL_PRICED.value})
+PRELIMINARY = "PRELIMINARY / SURVIVORSHIP-BIASED"
+RESEARCH_GRADE = integrity.RESEARCH_GRADE
+DERIVED_FIELDS = {"Evidence_Grade", "Integrity_Findings"}
+
+
+def evidence_grade(record: dict) -> str:
+    """Integrity grade of one record version (RESEARCH_GRADE when nothing material is found)."""
+    return integrity.assess_record(record).grade
 
 # The fields every signal record carries (None until the relevant analysis has been performed).
 RECORD_FIELDS = [
@@ -53,7 +71,7 @@ RECORD_FIELDS = [
     "Estimated_Slippage", "Capacity_Estimate", "Regime_Performance", "Correlation_With_Other_Signals",
     "In_Sample_Performance", "Validation_Performance", "Out_Of_Sample_Performance", "Walk_Forward_Performance",
     "Monte_Carlo_Results", "Paper_Trading_Performance", "Signal_Decay", "Last_Validated", "Status",
-    "Data_Label", "Data_Flags", "Experiment_IDs", "Notes",
+    "Data_Label", "Data_Flags", "Evidence_Grade", "Integrity_Findings", "Integrity_Inputs", "Experiment_IDs", "Notes",
 ]
 
 
@@ -82,12 +100,16 @@ def upsert_record(reg: Registry, signal_id: str, updates: dict[str, Any], reason
     """Append a new version merging ``updates`` into the latest record. Status cannot be set here."""
     if "Status" in updates:
         raise ValueError("use transition() to change status")
+    if DERIVED_FIELDS & set(updates):
+        raise ValueError(f"{sorted(DERIVED_FIELDS & set(updates))} are derived by the integrity gate")
     unknown = set(updates) - set(RECORD_FIELDS)
     if unknown:
         raise ValueError(f"unknown signal record fields: {unknown}")
     cur = latest_record(reg, signal_id) or {f: None for f in RECORD_FIELDS}
     version = int(cur.get("_version") or 0) + 1
     rec = {**cur, **updates, "Signal_ID": signal_id, "_version": version, "_reason": reason}
+    a = integrity.assess(reg, signal_id, pending=rec)
+    rec["Evidence_Grade"], rec["Integrity_Findings"] = a.grade, [f.to_dict() for f in a.findings]
     if rec.get("Status") is None:
         rec["Status"] = SignalStatus.EXPERIMENTAL.value
         reg.status_event("signal", signal_id, SignalStatus.EXPERIMENTAL, "signal created")
@@ -105,6 +127,17 @@ def transition(reg: Registry, signal_id: str, to: SignalStatus, reason: str, evi
         raise InvalidTransition(f"{signal_id}: {cur} → {to} is not an allowed transition")
     if to in REQUIRES_APPROVAL and not approved_by:
         raise InvalidTransition(f"{signal_id}: {to} requires explicit human approval (approved_by)")
+    if to in PROMOTED:
+        a = integrity.assess(reg, signal_id)
+        if not a.promotable:
+            # recorded, then refused: approval cannot override an integrity failure
+            reg.journal("promotion_blocked", reason=reason, signal_id=signal_id, from_status=cur.value,
+                        to_status=to.value, approved_by=approved_by, evidence_grade=a.grade,
+                        blocking_findings=[f.to_dict() for f in a.blocking],
+                        integrity_failures=[f.to_dict() for f in a.integrity_failures],
+                        insufficient_evidence=[f.to_dict() for f in a.insufficient_evidence])
+            raise InvalidTransition(f"{signal_id}: {to} refused by the research-integrity gate ({a.grade}): "
+                                    + "; ".join(a.reasons()))
     reg.status_event("signal", signal_id, to, reason, from_status=cur.value, evidence=evidence or {},
                      approved_by=approved_by)
     version = int(cur_rec.get("_version") or 0) + 1

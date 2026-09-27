@@ -120,7 +120,8 @@ EARNINGS_EVENTS = TableSchema(
         "available_at": "ts",  # == announce_time for realised events
         "source": "str",
     },
-    optional={"scheduled_available_at": "ts", "eps_actual": "float", "revenue_actual": "float"},
+    optional={"scheduled_available_at": "ts", "eps_actual": "float", "revenue_actual": "float",
+              "cik": "int", "accession": "str"},
     key=("symbol", "fiscal_period"),
     description="Realised earnings announcements. Expected dates known in advance are a separate concept"
     " (scheduled_available_at) and must not be confused with the realised timestamp.",
@@ -232,10 +233,63 @@ FUNDAMENTALS = TableSchema(
     key=("symbol", "fiscal_period", "metric", "available_at"),
 )
 
+# --- security master (see data/security_master.py) ----------------------------------------------
+# Identity is the permanent `security_id` (vendor permanent id, namespaced: "TIINGO:US000000000038",
+# "NORGATE:<assetid>", "CRSP:<permno>"). Tickers, names, exchanges and CIKs are dated attributes.
+# In every other canonical table the `symbol` column holds this security_id once a master exists.
+SECURITIES = TableSchema(
+    name="securities",
+    columns={
+        "security_id": "str",
+        "asset_type": "str",  # "stock" | "etf" | "adr" | "fund" | ...
+        "first_session": "date",  # first listed session
+        "last_session": "date",  # NaT = still listed
+        "available_at": "ts",  # when this row's content was known (delisting: its announcement)
+        "source": "str",
+    },
+    optional={"delisting_reason": "str",  # "merger" | "acquisition" | "bankruptcy" | "exchange_rule" | ...
+              "delisting_return": "float",  # return from last close to the delisting value (CRSP DLRET-style)
+              "delisting_value": "float"},  # cash/stock value per share received on delisting
+    key=("security_id",),
+    description="One row per security, keyed by a permanent identifier that never changes or gets reused.",
+)
+
+SECURITY_IDENTIFIERS = TableSchema(
+    name="security_identifiers",
+    columns={
+        "security_id": "str",
+        "id_type": "str",  # "ticker" | "name" | "exchange" | "cik" | "cusip" | "figi" | "vendor_id"
+        "value": "str",
+        "valid_from": "date",
+        "valid_to": "date",  # NaT = still valid; interval is [valid_from, valid_to]
+        "available_at": "ts",
+        "source": "str",
+    },
+    key=("security_id", "id_type", "valid_from"),
+    description="Dated attribute history: ticker, name and exchange history, and cross-references.",
+)
+
+SECURITY_EVENTS = TableSchema(
+    name="security_events",
+    columns={
+        "security_id": "str",
+        "event_type": "str",  # listing | delisting | merger | acquisition | bankruptcy | spinoff |
+                              # ticker_change | name_change | exchange_change | halt | resume
+        "event_date": "date",  # effective session
+        "available_at": "ts",  # announcement time (never later than known; conservative if unknown)
+        "source": "str",
+    },
+    optional={"counterparty_id": "str",  # acquirer / parent / spun-off security_id
+              "cash_per_share": "float", "shares_per_share": "float", "detail": "str"},
+    key=("security_id", "event_type", "event_date"),
+    description="Lifecycle events. Splits and dividends stay in corporate_actions.",
+)
+
 ALL_SCHEMAS: dict[str, TableSchema] = {
     s.name: s
     for s in [
         BARS_DAILY, BARS_INTRADAY, CORPORATE_ACTIONS, EARNINGS_EVENTS, EARNINGS_ESTIMATES,
         OPTION_QUOTES_EOD, MACRO_SERIES, INDEX_MEMBERSHIP, CLASSIFICATIONS, SHORT_INTEREST, FUNDAMENTALS,
+        SECURITIES, SECURITY_IDENTIFIERS, SECURITY_EVENTS,
     ]
 }

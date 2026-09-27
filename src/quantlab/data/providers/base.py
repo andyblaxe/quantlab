@@ -77,6 +77,11 @@ class DataProvider(ABC):
     def get_classifications(self, symbols: list[str], scheme: str) -> Dataset:
         raise CapabilityNotSupported(f"{self.info.provider_id} does not provide classifications")
 
+    def get_security_master(self) -> dict[str, Dataset]:
+        """``securities``, ``security_identifiers`` and ``security_events`` keyed by the vendor's
+        permanent id (namespaced, e.g. ``NORGATE:12345``). See ``data/security_master.py``."""
+        raise CapabilityNotSupported(f"{self.info.provider_id} does not provide a security master")
+
     # --- helpers -----------------------------------------------------------------------------------
     def capabilities(self) -> list[str]:
         """Names of the methods this provider overrides (i.e. genuinely supports)."""
@@ -84,7 +89,7 @@ class DataProvider(ABC):
         for name in [
             "get_daily_bars", "get_intraday_bars", "get_corporate_actions", "get_earnings_events",
             "get_earnings_estimates", "get_fundamentals", "get_short_interest", "get_option_quotes_eod",
-            "get_macro_series", "get_index_membership", "get_classifications",
+            "get_macro_series", "get_index_membership", "get_classifications", "get_security_master",
         ]:
             if getattr(type(self), name) is not getattr(DataProvider, name):
                 caps.append(name)

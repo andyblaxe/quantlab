@@ -14,9 +14,9 @@ from quantlab.config import Settings, get_settings
 from quantlab.data.providers.synthetic import SyntheticConfig, SyntheticMarket
 from quantlab.data.store import DataStore
 from quantlab.research.artifacts import ArtifactStore
-from quantlab.research.data import ResearchData
+from quantlab.research.data import ResearchData, universe_flags_from_kinds
 from quantlab.research.pipeline import ResearchPipeline
-from quantlab.research.program import MARKET_SYMBOL_V1, UNIVERSES_V1
+from quantlab.research.program import MARKET_SYMBOL_V1, UNIVERSE_KINDS_V1, UNIVERSES_V1
 from quantlab.research.registry import Registry
 from quantlab.research.splits import SplitPlan, active_split_plan, register_split_plan
 
@@ -90,7 +90,24 @@ def real_data(settings: Settings | None = None) -> ResearchData:
             macro[key] = st.load("macro_series", name=key)
         except KeyError:
             pass
-    return ResearchData.from_datasets(bars, actions, UNIVERSES_V1, MARKET_SYMBOL_V1, macro)
+    data = ResearchData.from_datasets(bars, actions, UNIVERSES_V1, MARKET_SYMBOL_V1, macro,
+                                      universe_flags=universe_flags_from_kinds(UNIVERSES_V1, UNIVERSE_KINDS_V1))
+    data.quality_issues = forced_validation_errors(st, [("bars_daily", bars), ("corporate_actions", actions),
+                                                        *[("macro_series", m) for m in macro.values()]])
+    return data
+
+
+def forced_validation_errors(st: DataStore, datasets: list) -> list[dict]:
+    """ERROR-level validation issues of datasets that were saved with force=True."""
+    out = []
+    for table, ds in datasets:
+        if ds is None:
+            continue
+        man = st.manifest(table, ds.content_hash)
+        if man.get("forced"):
+            out += [{"table": table, "check": i["check"], "count": i.get("count")}
+                    for i in man["validation"]["issues"] if i["severity"] == "ERROR"]
+    return out
 
 
 def make_pipeline(ws: Workspace, data: ResearchData, plan: SplitPlan, **kw) -> ResearchPipeline:

@@ -21,6 +21,7 @@ import pandas as pd
 from quantlab.paper.broker import Order, PaperBroker
 from quantlab.research.acceptance import AcceptanceCriteria
 from quantlab.research.catalog import latest_record
+from quantlab.research.integrity import assess
 from quantlab.research.registry import Registry
 from quantlab.risk.gate import GateDecision, ProposedTrade, RiskGate
 from quantlab.risk.metrics import PortfolioState, Position
@@ -46,6 +47,9 @@ class ForwardTester:
         rec = latest_record(self.reg, signal_id)
         if rec is None or rec["Status"] not in ("PAPER_TRADING", "LIVE_ELIGIBLE"):
             raise NotPaperTradable(f"{signal_id} is {rec['Status'] if rec else 'unknown'}; paper trading requires PAPER_TRADING")
+        gate = assess(self.reg, signal_id)
+        if not gate.promotable:  # e.g. a finding raised after promotion
+            raise NotPaperTradable(f"{signal_id}: research-integrity gate ({gate.grade}): " + "; ".join(gate.reasons()))
         q = self.broker.quote(symbol)
         decision: GateDecision = self.gate.evaluate(ProposedTrade(symbol, quantity, q.ask, kind=kind, sector=sector,
                                                                   signal_id=signal_id), self._state())
@@ -131,6 +135,8 @@ def live_eligibility(reg: Registry, signal_id: str, historical_net: pd.Series, m
                                        "passed": cmp.get("status") == "OK" and not cmp["below_5th_percentile"]},
         "slippage": {"value": slip, "required": f"<= {criteria.live_max_slippage_ratio} x {modelled_slippage}",
                      "passed": bool(np.isfinite(slip) and slip <= criteria.live_max_slippage_ratio * modelled_slippage)},
+        "research_integrity": {"value": (gate := assess(reg, signal_id)).grade, "required": "RESEARCH_GRADE",
+                               "passed": gate.promotable, "blocking": gate.reasons()},
     }
     res["eligible"] = all(v["passed"] for v in res.values() if isinstance(v, dict))
     return res

@@ -36,6 +36,9 @@ class DataFlag(StrEnum):
     MODEL_PRICED = "MODEL_PRICED"  # prices from a model, not observed quotes
     REVISABLE_NO_VINTAGE = "REVISABLE_NO_VINTAGE"  # revised series without vintage history
     UNVERIFIED_SOURCE = "UNVERIFIED_SOURCE"  # unofficial API / scraped
+    # universe built from securities that exist today (e.g. current index members): delisted and
+    # removed members are missing. Results are PRELIMINARY and cannot be promoted (catalog gate).
+    SURVIVORSHIP_BIASED_UNIVERSE = "SURVIVORSHIP_BIASED_UNIVERSE"
 
 
 def combine_labels(labels: Iterable[DataLabel]) -> DataLabel:

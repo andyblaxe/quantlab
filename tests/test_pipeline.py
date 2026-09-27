@@ -5,7 +5,7 @@ import pytest
 from quantlab.data.providers.synthetic import SyntheticConfig, SyntheticMarket
 from quantlab.research.artifacts import ArtifactStore
 from quantlab.research.catalog import latest_record
-from quantlab.research.data import ResearchData
+from quantlab.research.data import ResearchData, universe_flags_from_kinds
 from quantlab.research.hypotheses import (
     HypothesisSpec, HypothesisStatus, Mechanism, hypothesis_status, register_hypothesis,
 )
@@ -16,11 +16,14 @@ from quantlab.research.splits import SplitPlan, register_split_plan
 PLAN = SplitPlan("2013-12-31", "2017-12-31", embargo_sessions=10)
 
 
-def _pipeline(tmp_path, ar1, seed=3):
+def _pipeline(tmp_path, ar1, seed=3, universe_kinds=None):
     m = SyntheticMarket(SyntheticConfig(n_symbols=8, start="2006-01-01", end="2021-12-31", seed=seed, idio_ar1=ar1))
     reg = Registry(tmp_path / "r.sqlite")
     register_split_plan(reg, PLAN, "test")
-    pipe = ResearchPipeline(reg, ResearchData.from_synthetic(m), PLAN, ArtifactStore(tmp_path / "art"),
+    data = ResearchData.from_synthetic(m)
+    if universe_kinds:
+        data.universe_flags = universe_flags_from_kinds(data.universes, universe_kinds)
+    pipe = ResearchPipeline(reg, data, PLAN, ArtifactStore(tmp_path / "art"),
                             n_boot=200, n_perm=200, mc_paths=200, wf_min_train=504, wf_test=252)
     return reg, pipe
 
@@ -52,6 +55,30 @@ def test_planted_edge_is_detected_and_survives_untouched_test(tmp_path):
     assert all(not v for v in reg.verify_chain().values())
     with pytest.raises(PipelineError):
         pipe.run_untouched_test(hid)  # the test partition is one-shot
+
+
+def test_planted_edge_on_current_members_universe_stays_preliminary(tmp_path):
+    reg, pipe = _pipeline(tmp_path, ar1=-0.45, universe_kinds={"synthetic_all": "stock_current",
+                                                               "synthetic_market": "etf"})
+    hid = register_hypothesis(reg, _spec())
+    out = pipe.evaluate(hid)
+    assert out["signal_status"] == "VALIDATING" and out["conclusion"].startswith("PRELIMINARY")
+    assert latest_record(reg, out["signal_id"])["Evidence_Grade"] == "PRELIMINARY / SURVIVORSHIP-BIASED"
+    with pytest.raises(PipelineError, match="withheld"):
+        pipe.run_untouched_test(hid)
+    assert pipe.vault.total_accesses() == 0  # the one-shot test is kept for clean data
+
+
+def test_lookahead_detected_by_pipeline_blocks_promotion(tmp_path, monkeypatch):
+    import quantlab.research.pipeline as pl
+    monkeypatch.setattr(pl, "check_no_lookahead", lambda fdef, panel, **kw: [panel["close"].index[-1]])
+    reg, pipe = _pipeline(tmp_path, ar1=-0.45)
+    hid = register_hypothesis(reg, _spec())
+    out = pipe.evaluate(hid)
+    assert out["conclusion"].startswith("BIASED / LOOK-AHEAD"), out["conclusion"]
+    with pytest.raises(PipelineError, match="withheld"):
+        pipe.run_untouched_test(hid)
+    assert pipe.vault.total_accesses() == 0
 
 
 def test_null_market_is_not_accepted_and_vault_untouched(tmp_path):

@@ -20,7 +20,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from quantlab.research.acceptance import AcceptanceCriteria
+from quantlab.research.acceptance import AcceptanceCriteria, loosened_vs_defaults
 from quantlab.research.registry import Registry, canonical_json
 
 
@@ -84,6 +84,11 @@ class UnregisteredHypothesis(PermissionError):
 
 def register_hypothesis(reg: Registry, spec: HypothesisSpec, reason: str = "") -> str:
     """Pre-register a hypothesis. Must happen before any evaluation."""
+    crit = AcceptanceCriteria(**spec.acceptance)
+    loose = loosened_vs_defaults(crit)
+    if loose and not crit.justification.strip():
+        raise ValueError(f"acceptance thresholds {loose} are looser than the project defaults; pre-register a "
+                         "methodological justification (AcceptanceCriteria.justification)")
     h = spec.spec_hash()
     existing = reg.find("hypotheses", spec_hash=h)
     if existing:

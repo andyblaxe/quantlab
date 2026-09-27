@@ -23,6 +23,9 @@ UNIVERSES_V1: dict[str, list[str]] = {
     "sector_spdrs": ["XLB", "XLE", "XLF", "XLI", "XLK", "XLP", "XLU", "XLV", "XLY"],
     "multi_asset_etfs": ["SPY", "EFA", "EEM", "TLT", "IEF", "GLD", "DBC", "VNQ"],
 }
+# Every universe must declare its kind (see research.data.universe_flags_from_kinds); an undeclared
+# universe is treated as survivorship-biased and its results cannot be promoted.
+UNIVERSE_KINDS_V1: dict[str, str] = {name: "etf" for name in UNIVERSES_V1}
 MARKET_SYMBOL_V1 = "SPY"
 MACRO_V1 = {"VIX": "cboe:VIX", "VIX3M": "cboe:VIX3M"}
 

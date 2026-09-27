@@ -30,7 +30,11 @@ from quantlab.backtest.metrics import summarize_returns, summarize_trades, yearl
 from quantlab.montecarlo.simulate import MonteCarloConfig, monte_carlo
 from quantlab.research.acceptance import AcceptanceCriteria, CriterionResult, decide
 from quantlab.research.artifacts import ArtifactStore
-from quantlab.research.catalog import SignalStatus, signal_id_for, transition, upsert_record, latest_record
+from quantlab.research.catalog import (
+    RESEARCH_GRADE, InvalidTransition, SignalStatus, evidence_grade, latest_record, signal_id_for, transition,
+    upsert_record,
+)
+from quantlab.research.integrity import assess
 from quantlab.research.data import ResearchData
 from quantlab.research.hypotheses import (
     HypothesisSpec, HypothesisStatus, advance_hypothesis, hypothesis_status, load_hypothesis, require_registered,
@@ -45,7 +49,7 @@ from quantlab.research.vault import TestVault
 from quantlab.stats.core import bootstrap_ci, effective_n, mean_test_hac, random_entry_test
 from quantlab.stats.multiple import adjust, deflated_sharpe_ratio
 from quantlab.stats.signal import cross_sectional_ic, time_series_ic
-from quantlab.features import get_feature
+from quantlab.features import check_no_lookahead, get_feature
 
 CAPACITY_LEVELS = (100.0, 1_000.0, 10_000.0, 100_000.0, 1_000_000.0)
 
@@ -236,6 +240,16 @@ class ResearchPipeline:
             return float(ic.mean()) if len(ic) else None
         return time_series_ic(x.stack(), y.stack())
 
+    def _lookahead_check(self, panel, spec: HypothesisSpec) -> dict[str, list[str]]:
+        """Automatic truncation test on every feature the hypothesis uses (dates where it failed)."""
+        out = {}
+        for f in self._condition_features(spec):
+            try:
+                out[f] = [str(t.date()) for t in check_no_lookahead(get_feature(f), panel, n_checks=4, seed=self.seed)]
+            except ValueError as e:  # panel too short to test: record, don't guess
+                out[f] = [f"untestable: {e}"]
+        return out
+
     def _condition_features(self, spec: HypothesisSpec) -> list[str]:
         return [c[0] for c in spec.params.get("conditions", [])] + ([spec.params["feature"]] if "feature" in spec.params else [])
 
@@ -415,6 +429,9 @@ class ResearchPipeline:
             "regimes": regimes, "stability": stability, "capacity": capacity, "information_coefficient": ic,
             "signal_strength": strength,
             "monte_carlo": mc,
+            "integrity_inputs": {"lookahead_failures": self._lookahead_check(dev, spec), "cost_model": cm.to_dict(),
+                                 "execution": spec.execution,
+                                 "data_quality_issues": list(self.data.quality_issues)},
         }
         eid = self.reg.append("experiments", {"hypothesis_id": hid, "kind": "development",
                                               "status": (validation or screening).outcome}, results)
@@ -453,7 +470,11 @@ class ResearchPipeline:
         else:
             outcome, concl = "NOT_SUPPORTED", (f"No statistically reliable relationship after multiple-testing correction "
                                                f"(q={family['q_value']:.3g}).")
+        grade = evidence_grade({"Data_Flags": set(self.data.universe_flags.get(spec.universe, []))})
+        if grade != RESEARCH_GRADE:
+            concl = f"{grade}: {concl}"
         results = {"hypothesis_id": hid, "spec_hash": spec.spec_hash(), "stage": "development", "kind": "measurement",
+                   "evidence_grade": grade,
                    "data": self.data.describe(), "split_plan": self.plan.to_dict(), "code_version": code_version(),
                    "train": train, "development": dev, "multiple_testing": family, "outcome": outcome}
         eid = self.reg.append("experiments", {"hypothesis_id": hid, "kind": "development", "status": outcome}, results)
@@ -489,6 +510,17 @@ class ResearchPipeline:
         if validation.outcome == "PASS":
             advance_hypothesis(self.reg, hid, HypothesisStatus.FROZEN, "passed validation; spec locked for untouched test",
                                experiment_id=eid)
+            gate = assess(self.reg, sid)
+            if not gate.promotable:
+                return {"signal_id": sid, "signal_status": "VALIDATING",
+                        "conclusion": f"{gate.grade}: passed screening and validation, but "
+                                      + ("the evidence has unresolved integrity problems" if gate.integrity_failures
+                                         else "there is not yet enough evidence")
+                                      + f" ({'; '.join(gate.reasons())}).",
+                        "next_step": "Untouched test withheld (vault stays sealed). "
+                                     + ("Fix the data/method and re-register; this result cannot be promoted."
+                                        if gate.integrity_failures else
+                                        "Gather more data (longer history, broader universe) and re-register.")}
             return {"signal_id": sid, "signal_status": "VALIDATING",
                     "conclusion": "Passed screening and every validation criterion on development data.",
                     "next_step": "Run the one-time untouched test (run_untouched_test)."}
@@ -528,6 +560,7 @@ class ResearchPipeline:
                                     for c in mc.get("historical", {})} if mc.get("status") == "OK" else mc,
             "Signal_Decay": r["stability"].get("assessment"), "Last_Validated": pd.Timestamp.now(tz="UTC").isoformat(),
             "Data_Label": r["data"]["label"], "Data_Flags": sorted(set(r["data"]["flags"]) | set(r["universe_flags"])),
+            "Integrity_Inputs": r["integrity_inputs"],
             "Experiment_IDs": [eid],
         }
 
@@ -540,6 +573,10 @@ class ResearchPipeline:
         if hypothesis_status(self.reg, hid) != HypothesisStatus.FROZEN:
             raise PipelineError(f"{hid} is {hypothesis_status(self.reg, hid)}; only FROZEN hypotheses are tested")
         crit = AcceptanceCriteria(**spec.acceptance)
+        gate = assess(self.reg, signal_id_for(hid))
+        if not gate.promotable:
+            raise PipelineError(f"{hid} has {gate.grade} evidence; the untouched test is withheld so the vault is not "
+                                f"spent on non-promotable evidence ({'; '.join(gate.reasons())}).")
         dev_ex = self.reg.find("experiments", order="DESC", limit=1, hypothesis_id=hid, kind="development")[0]
         full = self.vault.unseal(self.data.panel, hid, dev_ex["id"], reason)
         contaminated = self.vault.is_contaminated(hid)
@@ -572,8 +609,18 @@ class ResearchPipeline:
         rec = latest_record(self.reg, sid)
         upsert_record(self.reg, sid, {"Out_Of_Sample_Performance": {"trades_net": tn, "daily_net": test["daily_net"],
                                                                     "decision": decision.outcome},
+                                      "Integrity_Inputs": {**(rec.get("Integrity_Inputs") or {}),
+                                                           "test_contaminated": bool(contaminated)},
                                       "Experiment_IDs": (rec.get("Experiment_IDs") or []) + [eid]}, f"untouched test {eid}")
-        if decision.outcome == "PASS":
+        gate = assess(self.reg, sid)
+        if decision.outcome == "PASS" and not gate.promotable:
+            status, concl = "VALIDATING", f"{gate.grade}: passed the untouched test but promotion is blocked."
+            nxt = "Integrity gate: " + "; ".join(gate.reasons())
+            try:  # records the refusal (journal) and raises
+                transition(self.reg, sid, SignalStatus.ACCEPTED, "passed the one-time untouched test", {"experiment_id": eid})
+            except InvalidTransition:
+                pass
+        elif decision.outcome == "PASS":
             transition(self.reg, sid, SignalStatus.ACCEPTED, "passed the one-time untouched test", {"experiment_id": eid})
             status, concl = "ACCEPTED", "Survived development validation and the untouched test."
             nxt = "Eligible for a human decision on PAPER_TRADING (requires approval and risk review)."

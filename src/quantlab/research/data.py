@@ -23,6 +23,9 @@ class ResearchData:
     series: dict[str, pd.Series] = field(default_factory=dict)
     universe_flags: dict[str, list[str]] = field(default_factory=dict)
     vix_key: str = "VIX"
+    # validation ERRORs of datasets that were force-saved ({table, check, count}); each one is a
+    # research-integrity finding on every result that uses this data (research/integrity.py)
+    quality_issues: list[dict] = field(default_factory=list)
 
     @property
     def label(self) -> DataLabel:
@@ -71,5 +74,22 @@ class ResearchData:
 def universe_flags_for(symbols_are_single_stocks: bool, has_pit_membership: bool) -> list[str]:
     flags = []
     if symbols_are_single_stocks and not has_pit_membership:
-        flags += [DataFlag.SURVIVORSHIP_RISK.value, DataFlag.NO_PIT_MEMBERSHIP.value]
+        flags += [DataFlag.SURVIVORSHIP_RISK.value, DataFlag.NO_PIT_MEMBERSHIP.value,
+                  DataFlag.SURVIVORSHIP_BIASED_UNIVERSE.value]
     return flags
+
+
+def universe_flags_from_kinds(universes: dict[str, list[str]], kinds: dict[str, str]) -> dict[str, list[str]]:
+    """Flags per universe from its declared kind. Fail-safe: an undeclared universe is treated as a
+    current-members stock universe (survivorship-biased) until someone declares otherwise.
+
+    Kinds: ``"etf"`` (fixed ETF set that existed throughout), ``"stock_pit"`` (point-in-time
+    membership with delisted securities), ``"stock_current"`` (today's members only).
+    """
+    out = {}
+    for name in universes:
+        kind = kinds.get(name, "stock_current")
+        if kind not in ("etf", "stock_pit", "stock_current"):
+            raise ValueError(f"unknown universe kind {kind!r} for {name}")
+        out[name] = universe_flags_for(kind != "etf", kind == "stock_pit")
+    return out

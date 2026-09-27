@@ -1,7 +1,14 @@
 # PROJECT_STATE.md
 
 _Last updated: 2026-09-27, second session (Phase 8 started on this Mac: real data ingested, program v1
-evaluated at development stage; EDGAR adapter in progress)._
+evaluated at development stage; EDGAR adapter built; survivorship audit done — PEAD paused pending
+the owner's data decision)._
+
+**Permanent rule (RESEARCH_METHODOLOGY.md §1a):** nothing with unresolved material research-integrity
+problems — survivorship bias above all — may be promoted to ACCEPTED, PAPER_TRADING or LIVE_ELIGIBLE.
+It is enforced in code (`research/integrity.py`); do not remove, weaken or bypass it. The principles
+are permanent; the numeric thresholds are pre-registered per hypothesis and cannot be loosened after
+results are seen.
 
 This is the hand-off document. A new session should be able to continue from here without the
 conversation history. Vocabulary: **IMPLEMENTED** (code exists) · **TESTED** (automated tests cover
@@ -70,9 +77,12 @@ data). Caveats: 20-symbol static universe of today's ETFs (SURVIVORSHIP_RISK fla
 | Research Analyst: fact layer, research & 14-section strategy reports (plain/quant), change-since-last, assistant | `analyst/` | IMPLEMENTED, TESTED |
 | Dashboard (11 pages, local, read-only except report generation) | `dashboard/app.py` | IMPLEMENTED, smoke-TESTED, screenshots checked light/dark |
 | Paper broker, forward ledger, forward-vs-history, CUSUM degradation, LIVE_ELIGIBLE check, live lock | `paper/` | IMPLEMENTED, TESTED; no real-time quote feed |
-| CLI | `cli.py` | IMPLEMENTED; data-fetch commands untested live |
+| CLI | `cli.py` | IMPLEMENTED; `data fetch`, `fetch-macro`, `fetch-earnings` run live |
+| EDGAR 8-K Item 2.02 earnings timestamps (release matched by usual reporting lag) | `data/providers/edgar.py` | IMPLEMENTED, TESTED on fixtures, run live (AAPL/MSFT/JPM/BRK-B) |
+| Security master: permanent ids, dated tickers/names/exchanges, lifecycle events, listed/tradable masks | `data/security_master.py` | IMPLEMENTED, TESTED; not populated (no source) |
+| **Research-integrity promotion gate (PERMANENT RULE)**: permanent principles in code; numeric thresholds pre-registered per hypothesis (`AcceptanceCriteria` v2026-09-27.2; looser-than-default needs a registered justification); INTEGRITY_FAILURE vs INSUFFICIENT_EVIDENCE; automatic + manual findings; union over record history; no override; enforced in catalog, pipeline (vault withheld), paper trading and live eligibility | `research/integrity.py`, `acceptance.py`, `catalog.py`, `pipeline.py`, `paper/forward.py` | IMPLEMENTED, TESTED (`tests/test_integrity.py`) |
 
-Tests: `.venv/bin/python -m pytest` (from the repo root) → 179 passed (~3 min; the pipeline tests dominate).
+Tests: `.venv/bin/python -m pytest` (from the repo root) → 218 passed (~3 min; the pipeline tests dominate).
 
 Environment (this Mac): Python 3.12 venv at `.venv`, created with uv (`~/.local/bin/uv venv --python 3.12`,
 then `uv pip install -e '.[dev,ml]'`). Resolved to **pandas 3.0.6**; the full suite passes on it.
@@ -121,7 +131,12 @@ Simulated: §3 (calibration, demo). Real data: program v1 development-stage resu
 
 - Stooq is blocked by a bot challenge (use Tiingo). FRED adapter has a working key but no v1 series use it.
 - Cboe VIX3M history starts ~2009, which starves H-000008 (INCONCLUSIVE).
-- EDGAR earnings-date adapter in progress (see §8).
+- **Survivorship (BLOCKING for single stocks):** Tiingo has almost no pre-2013 delisted prices and no
+  index-membership history (DATA_GAPS.md G1). Current-members stock universes are enforced as
+  PRELIMINARY / SURVIVORSHIP-BIASED: no promotion, untouched test withheld. Provider evaluation and
+  recommendation in DATA_PROVIDERS.md. **Do not buy data without the owner's approval.**
+- Security master (`data/security_master.py`): schemas/class/tests only; no source fills it yet.
+- EDGAR adapter maps tickers via SEC's current map (G3); switch to CIK from the security master.
 - No historical options data ⇒ option strategies cannot be backtested (analytics only). Model-priced
   chains are labelled SIMULATED and must never be used as evidence of option mispricing.
 - Relative-value and ML modules are tools; no hypothesis templates use them yet.
@@ -155,9 +170,13 @@ estimates/PIT-membership providers: interface only.
 1. ~~Get real data~~ — done 2026-09-27: `quantlab init`, `data fetch --provider tiingo`,
    `data fetch-macro`, `research register-program --name v1`, `research evaluate --all-registered`.
    Nothing in v1 reached FROZEN, so no untouched test is pending.
-2. **In progress:** EDGAR 8-K Item 2.02 adapter (earnings announcement timestamps) + PEAD hypothesis via event study.
-3. Hypothesis templates for pairs/spreads (using `relative_value.py`) and ML-model hypotheses (using
+2. **Owner decision pending:** survivorship-free data source (DATA_PROVIDERS.md recommends Sharadar,
+   subject to a quote; Norgate Platinum US$630/yr as alternative). Then write the vendor adapter
+   (`get_security_master`, bars/actions/membership keyed by security_id) and re-point EDGAR to CIKs.
+   PEAD (next item) waits for this; a current-members run could only ever be PRELIMINARY.
+3. Built (adapter done): EDGAR 8-K Item 2.02 adapter (earnings announcement timestamps) + PEAD hypothesis via event study.
+4. Hypothesis templates for pairs/spreads (using `relative_value.py`) and ML-model hypotheses (using
    `models.py`) so they flow through the same pipeline, multiple-testing and vault.
-4. Clustered (by date) bootstrap for event studies; `slow` test marker.
-5. Historical options data adapter (ORATS / Cboe DataShop) → earnings straddle hypothesis
+5. Clustered (by date) bootstrap for event studies; `slow` test marker.
+6. Historical options data adapter (ORATS / Cboe DataShop) → earnings straddle hypothesis
    (framed for rejection: implied moves > realised after spreads).

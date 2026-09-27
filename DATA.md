@@ -25,7 +25,7 @@ Every table has `available_at` (tz-aware UTC): **when the system could first hav
 | FRED series without vintages | observation date + 1 day, 17:00 ET (conservative; flagged `REVISABLE_NO_VINTAGE`) |
 | ALFRED vintages | vintage (realtime_start) date, 23:59 ET (FRED publishes no time of day) |
 | Corporate actions (Tiingo) | ex-date session open (true announcement is earlier; conservative) |
-| Earnings events | actual announcement timestamp (EDGAR acceptance time when implemented) |
+| Earnings events (EDGAR) | 8-K Item 2.02 acceptance time (to the second, UTC). Never early; can be late when the wire release precedes the filing, which can push day 0 one session late |
 | Index membership | announcement time; mask begins the day after announcement at the earliest |
 
 `session` columns are tz-naive trading dates validated against the XNYS calendar (`exchange_calendars`,
@@ -38,6 +38,62 @@ history from 1990).
 `short_interest`, `fundamentals`. Schemas exist for all of them; **only `bars_daily`,
 `corporate_actions`, `earnings_events` and `macro_series` have working producers today** (see
 PROJECT_STATE.md).
+
+## Security master (identity is permanent, tickers are dated attributes)
+
+`data/security_master.py`, schemas `securities`, `security_identifiers`, `security_events`.
+
+* `security_id` is a vendor's permanent id, namespaced (`TIINGO:US000000000038`, `NORGATE:<assetid>`,
+  `CRSP:<permno>`, `SHARADAR:<permaticker>`). It never changes and is never reused.
+* Ticker, name, exchange, CIK, CUSIP and FIGI are rows in `security_identifiers` with validity
+  intervals, so reuse (DELL: Dell Inc. to 2013, Dell Technologies from 2018) and renames (PCLN →
+  BKNG) resolve by date: `SecurityMaster.resolve("DELL", "2010-06-01")`.
+* `securities` holds first/last listed session, delisting reason/value/return where a source has
+  them. `security_events` holds listings, delistings, M&A, bankruptcies, spin-offs, ticker/name/
+  exchange changes and halts. Splits and dividends stay in `corporate_actions`.
+* `listed_on(date)` is the survivorship-free base universe (everything listed then, including later
+  delistings). `tradable_mask(volume)` = listed ∧ bar with volume > 0 ∧ not halted.
+* Historical index membership stays in `index_membership`, keyed by `security_id`.
+* Once a master exists, the `symbol` column of every other canonical table holds the `security_id`;
+  the panel's columns are security ids, so no engine downstream depends on tickers.
+* **Status:** schemas, class and tests exist; **no source fills it yet** (Tiingo cannot supply
+  pre-2013 delisted prices, ticker history or membership — see DATA_GAPS.md G1).
+* Universe kinds (`research/data.universe_flags_from_kinds`): `etf`, `stock_pit`, `stock_current`.
+  `stock_current` (and any undeclared universe) carries `SURVIVORSHIP_BIASED_UNIVERSE`, which makes
+  results PRELIMINARY and blocks promotion.
+
+## Data quality and the research-integrity gate (permanent rule)
+
+Data problems follow the data into every result and are enforced by the promotion gate
+(RESEARCH_METHODOLOGY.md §1a, `research/integrity.py`):
+
+* `SURVIVORSHIP_BIASED_UNIVERSE` ⇒ survivorship finding; `MODEL_PRICED` ⇒ unreliable-prices finding.
+* A dataset saved with `force=True` despite validation ERRORs contributes a finding to every result
+  that uses it: timestamp/session errors ⇒ timestamp integrity, price errors ⇒ unreliable prices,
+  action errors ⇒ corporate-action error (`research/session.forced_validation_errors`).
+* Provider-level caveats that do not by themselves invalidate an edge (`SURVIVORSHIP_RISK` on ETF
+  sets, `VENDOR_ADJUSTED`, `REVISABLE_NO_VINTAGE`) stay as flags and are reported, but do not block.
+* These are integrity *failures*, distinct from insufficient evidence (small samples, lack of
+  significance), which is judged against each hypothesis's pre-registered thresholds.
+* Known gaps and what would close them: DATA_GAPS.md.
+
+## Earnings announcements (SEC EDGAR)
+
+`data/providers/edgar.py`, CLI `quantlab data fetch-earnings --symbols AAPL,MSFT,...`
+(needs `EDGAR_USER_AGENT`; ~2 requests per company, throttled under SEC's 10/s).
+
+* Source: the issuer's submissions JSON; only original `8-K`s listing Item 2.02 (from 2004-08-23,
+  when Item 2.02 was introduced). `8-K/A` amendments are ignored.
+* One release per fiscal period. Periods are the period ends of the issuer's 10-Q/10-K filings.
+  Candidates are Item 2.02 filings after the period end and no later than the next period end
+  (≤ 75 days); the chosen one has the lag closest to the issuer's usual lag, the median over the 8
+  nearest unambiguous periods. This drops pre-announcements, restatements and second filings
+  (checked on AAPL 2005/2006/2008/2019, MSFT 2004, JPM 2012). Dropped filings are counted per symbol.
+* `timing`: BMO / DURING / AMC against that day's NYSE open and close (early closes handled);
+  filings on non-session days are BMO for the next session.
+* The newest quarter appears only once its 10-Q/10-K is filed.
+* Ticker → CIK uses SEC's **current** ticker map, so delisted/renamed issuers are missing
+  (`SURVIVORSHIP_RISK`; DATA_GAPS.md G3). With a security master, fetch by CIK instead.
 
 ## Prices: raw storage, point-in-time adjustment
 

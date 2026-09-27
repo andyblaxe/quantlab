@@ -4,6 +4,11 @@ The criteria object is **snapshotted into every hypothesis at registration** (an
 spec hash), so thresholds cannot be loosened after results are seen. Changing the defaults only
 affects hypotheses registered afterwards.
 
+These are the *configurable* numerical implementations of the permanent integrity principles
+(RESEARCH_METHODOLOGY.md §1a). The class defaults are the conservative project defaults. A hypothesis
+may pre-register different values suited to its methodology, but any value **looser** than the
+default must carry a written ``justification`` at registration (:func:`loosened_vs_defaults`).
+
 See RESEARCH_METHODOLOGY.md for the rationale behind each threshold.
 """
 
@@ -16,8 +21,10 @@ import tomllib
 
 @dataclass(frozen=True)
 class AcceptanceCriteria:
-    version: str = "2026-09-27.1"
-    # sample adequacy
+    version: str = "2026-09-27.2"
+    # why this methodology needs values looser than the defaults (required if any are looser)
+    justification: str = ""
+    # sample adequacy (effective N already discounts autocorrelation/overlap; see stats.effective_n)
     min_effective_n_inconclusive: int = 30
     min_effective_n_accept: int = 100
     # screening (training data only)
@@ -37,15 +44,39 @@ class AcceptanceCriteria:
     live_min_paper_trades: int = 30
     live_min_forward_percentile: float = 0.05
     live_max_slippage_ratio: float = 1.5
+    # execution and liquidity assumptions
+    allowed_executions: tuple[str, ...] = ("next_open", "next_close")
+    max_participation: float = 0.10  # max fraction of ADV per trade assumed fillable
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        d["allowed_executions"] = list(self.allowed_executions)  # JSON-native, so stored specs round-trip
+        return d
 
     @staticmethod
     def from_toml(path: str | Path) -> "AcceptanceCriteria":
         with open(path, "rb") as f:
             data = tomllib.load(f)
         return AcceptanceCriteria(**data.get("acceptance", data))
+
+
+# direction in which each threshold becomes LESS strict: +1 = larger is looser, -1 = smaller is looser
+LOOSER_DIRECTION: dict[str, int] = {
+    "min_effective_n_inconclusive": -1, "min_effective_n_accept": -1, "screen_p_value": +1,
+    "validation_sharpe_ratio_of_train": -1, "walk_forward_min_positive_fold_frac": -1, "fdr_q": +1,
+    "dsr_min_prob": -1, "bootstrap_ci_level": -1, "cost_stress_multiplier": -1, "max_single_year_pnl_share": +1,
+    "min_param_neighbor_positive_frac": -1, "live_min_paper_days": -1, "live_min_paper_trades": -1,
+    "live_min_forward_percentile": -1, "live_max_slippage_ratio": +1, "max_participation": +1,
+}
+
+
+def loosened_vs_defaults(c: AcceptanceCriteria) -> list[str]:
+    """Thresholds in ``c`` that are less strict than the conservative project defaults."""
+    d = AcceptanceCriteria()
+    out = [k for k, sign in LOOSER_DIRECTION.items() if sign * (getattr(c, k) - getattr(d, k)) > 0]
+    if set(c.allowed_executions) - set(d.allowed_executions):
+        out.append("allowed_executions")
+    return out
 
 
 @dataclass

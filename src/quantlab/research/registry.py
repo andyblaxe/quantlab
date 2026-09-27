@@ -38,6 +38,7 @@ TABLES: dict[str, tuple[str, tuple[str, ...]]] = {
     "vault_access": ("V", ("hypothesis_id", "experiment_id", "contaminated")),
     "reports": ("R", ("kind", "subject")),
     "paper_trades": ("PT", ("signal_id", "symbol")),
+    "integrity_findings": ("IF", ("signal_id", "category", "action")),
 }
 
 

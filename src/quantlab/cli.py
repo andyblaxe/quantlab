@@ -72,6 +72,24 @@ def data_fetch_macro(series: str = typer.Option("VIX,VIX3M"), provider: str = "c
         typer.echo(f"{sid}: {st.save('macro_series', ds, name=sid)} ({len(ds.frame)} rows)")
 
 
+@data_app.command("fetch-earnings")
+def data_fetch_earnings(symbols: str = typer.Option(..., help="comma list of stock tickers"),
+                        start: str = "2004-08-23", end: str = typer.Option(None)) -> None:
+    """Download earnings announcement timestamps (SEC EDGAR 8-K Item 2.02) into the store."""
+    import pandas as pd
+
+    from quantlab.data.providers.edgar import EdgarProvider
+    from quantlab.data.store import DataStore
+    end = end or str(pd.Timestamp.today().date())
+    p = EdgarProvider()
+    ds = p.get_earnings_events(symbols.split(","), start, end)
+    for sym, c in p.last_counts.items():
+        typer.echo(f"{sym:6s} releases={c['matched']:>3} (item 2.02 filings={c['item_202_filings']}, "
+                   f"dropped={c['unmatched']}, ambiguous periods={c['ambiguous_periods']})")
+    h = DataStore(get_settings().store_dir).save("earnings_events", ds)
+    typer.echo(f"earnings_events: {h} ({len(ds.frame)} rows, label={ds.label}, flags={sorted(ds.provenance.flags)})")
+
+
 @data_app.command("list")
 def data_list() -> None:
     """List stored dataset versions."""
@@ -91,7 +109,11 @@ def register_program(name: str = "v1", demo: bool = False) -> None:
     from quantlab.research.hypotheses import DuplicateHypothesis, register_hypothesis
     from quantlab.research.program import PROGRAMS
     ws = _ws(demo)
+    by_name = {h["name"]: h["id"] for h in ws.registry.find("hypotheses")}
     for spec in PROGRAMS[name]():
+        if spec.name in by_name:  # e.g. registered under an earlier AcceptanceCriteria version
+            typer.echo(f"{by_name[spec.name]}  (already registered under this name; not re-registered) {spec.name}")
+            continue
         try:
             typer.echo(f"{register_hypothesis(ws.registry, spec, reason=f'program {name}')}  {spec.name}")
         except DuplicateHypothesis as e:

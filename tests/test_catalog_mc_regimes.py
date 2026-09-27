@@ -4,8 +4,9 @@ import pytest
 
 from quantlab.montecarlo.simulate import MonteCarloConfig, monte_carlo
 from quantlab.research.catalog import (
-    InvalidTransition, SignalStatus, all_signals, latest_record, transition, upsert_record,
+    PRELIMINARY, InvalidTransition, SignalStatus, all_signals, evidence_grade, latest_record, transition, upsert_record,
 )
+from quantlab.research.data import universe_flags_from_kinds
 from quantlab.research.regimes import performance_by_regime, regime_labels
 
 
@@ -29,6 +30,29 @@ def test_catalog_versions_and_lifecycle(registry):
     with pytest.raises(InvalidTransition):
         transition(registry, "SIG-1", SignalStatus.ACCEPTED, "resurrect")  # terminal
     assert [s["Signal_ID"] for s in all_signals(registry)] == ["SIG-1"]
+
+
+def test_survivorship_biased_evidence_cannot_be_promoted(registry):
+    flags = ["SURVIVORSHIP_RISK", "NO_PIT_MEMBERSHIP", "SURVIVORSHIP_BIASED_UNIVERSE"]
+    upsert_record(registry, "SIG-3", {"Name": "pead", "Data_Flags": flags}, "created")
+    assert evidence_grade(latest_record(registry, "SIG-3")) == PRELIMINARY
+    transition(registry, "SIG-3", SignalStatus.VALIDATING, "screened")  # still allowed: it is only a label
+    with pytest.raises(InvalidTransition, match="SURVIVORSHIP-BIASED"):
+        transition(registry, "SIG-3", SignalStatus.ACCEPTED, "validated", approved_by="owner")
+    transition(registry, "SIG-3", SignalStatus.REJECTED, "cannot be promoted")
+    # the provider-level SURVIVORSHIP_RISK flag alone (ETF sets) does not block
+    upsert_record(registry, "SIG-4", {"Name": "etf", "Data_Flags": ["SURVIVORSHIP_RISK"]}, "created")
+    transition(registry, "SIG-4", SignalStatus.VALIDATING, "screened")
+    transition(registry, "SIG-4", SignalStatus.ACCEPTED, "validated")
+
+
+def test_undeclared_universes_are_treated_as_survivorship_biased():
+    flags = universe_flags_from_kinds({"etfs": ["SPY"], "sp100": ["AAPL"], "pit": ["X"]},
+                                      {"etfs": "etf", "pit": "stock_pit"})
+    assert flags["etfs"] == [] and "SURVIVORSHIP_BIASED_UNIVERSE" in flags["sp100"]
+    assert "SURVIVORSHIP_BIASED_UNIVERSE" not in flags["pit"]
+    with pytest.raises(ValueError):
+        universe_flags_from_kinds({"u": []}, {"u": "stocks"})
 
 
 def test_rejected_is_terminal(registry):
