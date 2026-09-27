@@ -40,4 +40,4 @@ packages = ["src/quantlab"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-filterwarnings = ["error::FutureWarning", "ignore::DeprecationWarning:fastapi.testclient"]
+filterwarnings = ["error::FutureWarning", "ignore:Using `httpx` with `starlette.testclient`"]

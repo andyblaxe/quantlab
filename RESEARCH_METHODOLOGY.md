@@ -115,8 +115,12 @@ count toward the family's multiple-testing burden and appear in reports.
 
 Every strategy is compared with: zero (after costs), random entries (timing), and buy-and-hold of the
 same universe (position strategies). Simple momentum / mean reversion benchmarks are in
-`backtest/benchmarks.py`. Linear/logistic model benchmarks and ML models are planned (Phase 9);
-complex models must beat the simple ones out of sample after costs.
+`backtest/benchmarks.py`. Model benchmarks (`research/models.py`): walk-forward logistic regression
+and gradient boosting predicting P(forward return > 0), evaluated only out of sample against
+always-long and random-entry baselines after costs, with calibration tables; MODEL EXPLANATION
+(permutation importance, partial dependence, prediction distribution) is reported separately and
+never as causal evidence. These are tools today — not yet wired into hypothesis templates, so no
+model has been through the vault. Complex models must beat the simple ones out of sample after costs.
 
 ## 9. Calibration of the machinery (SIMULATED)
 

@@ -1,100 +1,131 @@
 # PROJECT_STATE.md
 
-_Last updated: 2026-09-27 — end of Phase 3 (validation pipeline). Phase 6 (analyst) in progress._
+_Last updated: 2026-09-27, end of the first build session (Phases 1–7 built; Phase 8 blocked on data)._
 
-This file is the hand-off document. A new session should be able to continue from here without
-the conversation history. Status vocabulary: **IMPLEMENTED** (code exists) · **TESTED** (automated
-tests cover it) · **SIMULATED** (runs only on synthetic data so far) · **PLANNED** (not built).
+This is the hand-off document. A new session should be able to continue from here without the
+conversation history. Vocabulary: **IMPLEMENTED** (code exists) · **TESTED** (automated tests cover
+it) · **SIMULATED** (only exercised on synthetic data) · **PLANNED** (not built).
 
-## Research findings
+## 1. Research findings
 
-**None.** No real market data has been ingested. The build environment's network policy blocks
-the free data hosts (query1.finance.yahoo.com, stooq.com, fred.stlouisfed.org); every number
-produced so far comes from the SIMULATED synthetic market and is a machinery check, not a finding.
+**No research findings on real markets exist.** No real market data has been ingested. The build
+environment's network policy blocks the free data hosts (query1.finance.yahoo.com, stooq.com,
+fred.stlouisfed.org), so every number produced so far comes from SIMULATED synthetic markets. Those
+numbers validate the machinery; they are not evidence about markets.
 
-## What is built
+The pre-registered research program v1 (10 hypotheses, `research/program.py`, PLAN.md §12) is
+committed to git and has **not** been run on real data.
+
+## 2. What is built
 
 | Component | Module | Status |
 |---|---|---|
 | Config from env vars, `.env.example` | `config.py` | IMPLEMENTED, TESTED |
 | Provenance labels/flags, dataset hashing | `provenance.py` | IMPLEMENTED, TESTED |
-| NYSE calendar + bar availability timestamps (early closes) | `calendar.py` | IMPLEMENTED, TESTED |
-| Canonical schemas for 11 tables | `data/schemas.py` | IMPLEMENTED (bars/actions/earnings/macro exercised) |
+| NYSE calendar, bar availability timestamps (early closes) | `calendar.py` | IMPLEMENTED, TESTED |
+| Canonical schemas (11 tables) | `data/schemas.py` | IMPLEMENTED (bars/actions/earnings/macro/options exercised) |
 | Provider interface | `data/providers/base.py` | IMPLEMENTED, TESTED |
-| Synthetic market (SIMULATED) | `data/providers/synthetic.py` | IMPLEMENTED, TESTED |
-| Stooq / Tiingo / FRED-ALFRED / Cboe adapters | `data/providers/free.py` | Parsers TESTED on fixtures; **live fetch never run** |
-| Local CSV loader (for purchased data) | `data/providers/local_csv.py` | IMPLEMENTED (light tests pending) |
-| Data validation | `data/validation.py` | IMPLEMENTED, TESTED |
-| Write-once versioned Parquet store + DuckDB | `data/store.py` | IMPLEMENTED, TESTED |
-| PIT adjustment (forward TRI) and research panel | `data/adjust.py` | IMPLEMENTED, TESTED (matches simulator truth to 1e-10) |
-| PIT frames / as-of joins for vintaged series | `data/pit.py` | IMPLEMENTED, TESTED |
-| PIT universes (membership, static + flags) | `data/universe.py` | IMPLEMENTED, TESTED |
-| Append-only, hash-chained research registry | `research/registry.py` | IMPLEMENTED, TESTED |
-| Hypothesis pre-registration + lifecycle | `research/hypotheses.py` | IMPLEMENTED, TESTED |
-| Acceptance criteria (frozen into spec hash) | `research/acceptance.py` | IMPLEMENTED (evaluation logic: Phase 3) |
-| Split plan, embargo, purging, walk-forward folds | `research/splits.py` | IMPLEMENTED, TESTED |
-| Test vault (FROZEN-only, one unseal, contamination log) | `research/vault.py` | IMPLEMENTED, TESTED |
-| Forward-return labels (isolated module) | `research/labels.py` | IMPLEMENTED, TESTED |
+| Synthetic market (SIMULATED; GARCH, regimes, splits, dividends, earnings, VIX-like; planted effects) | `data/providers/synthetic.py` | IMPLEMENTED, TESTED |
+| Stooq / Tiingo / FRED-ALFRED / Cboe adapters | `data/providers/free.py` | parsers TESTED on fixtures; **live fetch never run** |
+| Local CSV loader (for purchased data) | `data/providers/local_csv.py` | IMPLEMENTED, untested |
+| Validation | `data/validation.py` | IMPLEMENTED, TESTED |
+| Write-once versioned store + DuckDB | `data/store.py` | IMPLEMENTED, TESTED |
+| PIT forward total-return adjustment | `data/adjust.py` | IMPLEMENTED, TESTED (matches simulator truth to 1e-10) |
+| PIT frames / as-of joins (vintages) | `data/pit.py` | IMPLEMENTED, TESTED |
+| PIT universes | `data/universe.py` | IMPLEMENTED, TESTED |
 | Feature library (24 families) + automatic truncation test | `features/` | IMPLEMENTED, TESTED |
-| Cost model (spread, slippage, sqrt impact, commissions, borrow; profiles) | `backtest/costs.py` | IMPLEMENTED, TESTED |
-| Portfolio engine (raw-price share accounting, ex-date actions, next-bar fills, liquidity caps, integer shares, gross vs net runs) | `backtest/engine.py` | IMPLEMENTED, TESTED |
-| Event-trade engine (feasibility rules, per-trade gross/net) | `backtest/trades.py` | IMPLEMENTED, TESTED |
-| Metrics, benchmarks, event study | `backtest/` | IMPLEMENTED, TESTED (event study: light) |
-| Statistics: HAC, block bootstrap, sign-flip, circular-shift, random-entry, effective N, BH/BY/Holm, PSR/DSR, IC, Bayesian shrinkage | `stats/` | IMPLEMENTED, TESTED incl. size/power calibration |
+| Cost model, portfolio engine, event-trade engine, metrics, benchmarks | `backtest/` | IMPLEMENTED, TESTED |
+| Event study | `backtest/event_study.py` | IMPLEMENTED, lightly tested; no earnings data source yet |
+| Statistics (HAC, bootstrap, permutation, random-entry, effective N, BH/BY/Holm, PSR/DSR, IC, Bayes) | `stats/` | IMPLEMENTED, TESTED incl. size/power calibration |
+| Append-only hash-chained registry (thread-safe) | `research/registry.py` | IMPLEMENTED, TESTED |
+| Hypothesis pre-registration + lifecycle; acceptance criteria frozen into hash | `research/hypotheses.py`, `acceptance.py` | IMPLEMENTED, TESTED |
+| Split plan, embargo, purging, walk-forward; test vault | `research/splits.py`, `vault.py` | IMPLEMENTED, TESTED |
 | Strategy templates (threshold/quantile events, state positions, overnight/intraday segments) | `research/strategies.py` | IMPLEMENTED, TESTED |
-| Validation pipeline (screening, validation, walk-forward, stress, BY, DSR, regimes, stability, capacity, MC, one-shot test) | `research/pipeline.py` | IMPLEMENTED, TESTED (SIMULATED) |
-| Measurement hypotheses (VRP, conditional forward vol/returns) | `research/measurements.py` | IMPLEMENTED, TESTED |
+| Validation pipeline + one-shot untouched test | `research/pipeline.py` | IMPLEMENTED, TESTED (SIMULATED) |
+| Measurement hypotheses (VRP, conditional forward) | `research/measurements.py` | IMPLEMENTED, TESTED |
 | Signal catalog + enforced status machine | `research/catalog.py` | IMPLEMENTED, TESTED |
-| Monte Carlo capital simulation ($100–$100k; fixed costs, minimum size, ruin, stressed variant) | `montecarlo/simulate.py` | IMPLEMENTED, TESTED |
-| Research program v1 (10 pre-registered hypotheses) | `research/program.py` | IMPLEMENTED; **not yet run on real data** |
-| Budgeted hypothesis generator | `research/generator.py` | IMPLEMENTED, TESTED |
-| Pipeline calibration | `research/calibration.py`, `quantlab calibrate` | IMPLEMENTED; results below |
-| CLI (`quantlab ...`) | `cli.py` | IMPLEMENTED (data fetch commands untested live) |
+| Research program v1; budgeted generator; calibration | `research/program.py`, `generator.py`, `calibration.py` | IMPLEMENTED, TESTED |
+| Relative-value toolkit (rolling corr, Engle–Granger, PIT spreads/z, half-life, PCA residuals, clustering) | `research/relative_value.py` | IMPLEMENTED, TESTED — not yet wired into hypothesis templates |
+| ML benchmarks (walk-forward logistic / gradient boosting, OOS evaluation vs baselines, calibration, permutation importance, PDP) | `research/models.py` | IMPLEMENTED, TESTED — not yet wired into the pipeline |
+| Monte Carlo ($100–$100k; fixed costs, min size, ruin, stressed) | `montecarlo/simulate.py` | IMPLEMENTED, TESTED |
+| Options: BSM, Greeks, IV (no-arb bounds), CRR American, parity (bid/ask), expected & event moves, RND, payoffs, multi-leg, chain analytics, conservative option trade simulator | `options/` | IMPLEMENTED, TESTED on model/simulated chains; **no historical option data** |
+| Risk: VaR/ES/CF, exposures, fractional Kelly on lower-bound edge, ruin, RiskGate | `risk/` | IMPLEMENTED, TESTED |
+| Signal combination (no double counting) + fractional-Kelly portfolio | `portfolio/combine.py` | IMPLEMENTED, TESTED |
+| Current opportunities (NO TRADE explicit) | `research/opportunities.py` | IMPLEMENTED, exercised via dashboard (SIMULATED) |
+| Research Analyst: fact layer, research & 14-section strategy reports (plain/quant), change-since-last, assistant | `analyst/` | IMPLEMENTED, TESTED |
+| Dashboard (11 pages, local, read-only except report generation) | `dashboard/app.py` | IMPLEMENTED, smoke-TESTED, screenshots checked light/dark |
+| Paper broker, forward ledger, forward-vs-history, CUSUM degradation, LIVE_ELIGIBLE check, live lock | `paper/` | IMPLEMENTED, TESTED; no real-time quote feed |
+| CLI | `cli.py` | IMPLEMENTED; data-fetch commands untested live |
 
-Tests: `cd quantlab && .venv/bin/python -m pytest` → 121 passed.
+Tests: `cd quantlab && .venv/bin/python -m pytest` → 178 passed (~4 min; the pipeline tests dominate).
 
-### Machinery calibration (SIMULATED, 2026-09-27)
+## 3. Machinery calibration and demo (SIMULATED)
 
-`quantlab calibrate --n-null 20 --n-power 5`, 1-day reversal hypothesis, retail ETF costs:
-null markets → 0/20 reached FROZEN or ACCEPTED (0/20 is consistent with a true rate up to ~14%;
-more runs needed for a tight bound; costs make this null relatively easy to reject). Planted
-reversal (idiosyncratic AR(1) = −0.45) → 5/5 detected and accepted after the untouched test. A
-weaker planted effect (−0.15) is real but smaller than costs and is correctly rejected; −0.3 failed
-screening in one run because a stressed regime inside TRAIN hurt it — the pipeline errs toward false
-negatives.
+* `quantlab calibrate` (after the DSR fix): null markets 0/10 accepted; planted 1-day reversal
+  (AR(1) = −0.45) 3/3 detected and accepted after the untouched test. An earlier run (0/20 nulls,
+  5/5 power) predates the DSR fix but nulls failed at screening there too. 0/N bounds the
+  false-positive rate only loosely (0/20 ⇒ ≤ ~14% at 95%); run more for a tight bound.
+* `quantlab demo` (synthetic market with a planted 1-day idiosyncratic reversal): the two generated
+  hypotheses matching the planted mechanism (1-day z-score, 1-day hold) were ACCEPTED; the 10
+  mismatched variants and all eight program-v1 trading hypotheses were REJECTED; VRP measurement
+  SUPPORTED (true by construction); VIX term structure INCONCLUSIVE (no VIX3M in the demo).
+  Note: this synthetic path (seed 42) fell ~70% over 26 years, so "market drawdown > 20%" dominates
+  its regime table — a property of that path, not a bug.
+* A weaker planted effect (−0.15) is real but below costs and is correctly rejected; −0.3 failed
+  screening once because a stressed regime in TRAIN hurt it. The pipeline errs toward false negatives.
 
-### Dry run of program v1 on SIMULATED stand-in data (no planted effects)
+## 4. What is simulated / what uses real data
 
-All eight trading hypotheses rejected at screening; VRP measurement "SUPPORTED" (true by construction
-— the synthetic VIX embeds a premium); VIX term-structure measurement INCONCLUSIVE (no VIX3M series).
-This validates plumbing only.
+Simulated: everything that produced numbers. Real data: nothing yet.
 
-## What is simulated
+## 5. Bugs found and fixed this session (recorded for auditability)
 
-Everything that produces numbers. The synthetic market is the only data source exercised.
+1. **Deflated Sharpe benchmark inflated** by heterogeneous, cost-crushed trials (empirical cross-trial
+   Sharpe dispersion). Fixed: criterion uses the null sampling dispersion; empirical version kept as a
+   diagnostic. Regression test added. The pre-fix demo registry was archived, not deleted
+   (`data/demo_archive_dsr_bug_20260927`, local only).
+2. Option trade simulator dropped trades with a missing exit quote (survivorship). Fixed: exit is
+   delayed (recorded) or settled at expiry.
+3. IVs from min-tick and deep-ITM quotes were trusted. Fixed: `iv_reliable` flag (bid > 0, spread <
+   25%, OTM/near-ATM); surfaces use reliable quotes only.
+4. Segment (overnight) strategy too slow (Python loop); vectorised.
+5. Registry not usable from the dashboard's thread pool; now thread-safe.
 
-## What uses real data
+## 6. Known limitations / open issues
 
-Nothing yet.
+- Free-provider adapters have never hit live services (network blocked here).
+- No earnings-date / EDGAR adapter yet ⇒ earnings strategies cannot be researched yet.
+- No historical options data ⇒ option strategies cannot be backtested (analytics only). Model-priced
+  chains are labelled SIMULATED and must never be used as evidence of option mispricing.
+- Relative-value and ML modules are tools; no hypothesis templates use them yet.
+- Event-study bootstrap treats events as independent (clustered bootstrap planned).
+- Effective-N is a calendar-block heuristic.
+- `turn_of_month` uses today's calendar (unscheduled historical closures were not known in advance).
+- Tiingo corporate-action announcement times unknown (conservative: ex-date open).
+- VIX series are timestamped close+30 min while bars are close+15 min, so VIX used at a session's
+  decision time is the previous day's value — conservative, documented.
+- Position-strategy "trades" (holding spells) use a spread+slippage per-side cost approximation;
+  daily returns come from the full engine.
+- Pipeline test runtime (~3 min) — consider a `slow` marker.
+- SHAP not implemented (permutation importance and PDP are).
+- Taxes / wash sales not modelled.
+- The vault is a guard rail with an audit trail, not a cryptographic barrier.
 
-## Planned (not built)
+## 7. Current data providers
 
-Phase 4: options analytics. Phase 5: risk engine & portfolio construction. Phase 6: analyst,
-reports, dashboard, assistant (fact layer started). Phase 7: paper trading. Phase 8: real-data run.
-Phase 9: cross-sectional/stat-arb/ML. See PLAN.md §9.
+Configured and working: synthetic (SIMULATED). Ready but untested live: Stooq (no key), Tiingo
+(`TIINGO_API_KEY`), FRED/ALFRED (`FRED_API_KEY`), Cboe indices (no key). Paid options/intraday/
+estimates/PIT-membership providers: interface only.
 
-## Current data providers
+## 8. Next development tasks (in priority order)
 
-Configured: synthetic only. Adapters ready (untested live): Stooq, Tiingo (key), FRED/ALFRED (key), Cboe.
-
-## Known bugs / limitations
-
-- Free-provider adapters have never hit the live services.
-- `turn_of_month` uses today's exchange calendar; unscheduled historical closures (e.g. 2012
-  Hurricane Sandy) were not known in advance — negligible, documented.
-- Corporate-action announcement times from Tiingo are unknown; set conservatively to the ex-date open.
-- The vault is a guard rail (default path is clean; deviations are logged), not a cryptographic barrier.
-
-## Next development task
-
-Phase 6: finish `analyst/` (research report, strategy report, assistant), then dashboard.
+1. **Get real data** — run on a machine with internet (or allow the hosts in this environment's
+   network settings): `quantlab init`, `data fetch --provider tiingo`, `data fetch-macro`, then
+   `research register-program v1` and `research evaluate --all-registered`. Inspect validation
+   warnings first. This is Phase 8 and produces the first real findings.
+2. EDGAR 8-K Item 2.02 adapter (earnings announcement timestamps) + PEAD hypothesis via event study.
+3. Hypothesis templates for pairs/spreads (using `relative_value.py`) and ML-model hypotheses (using
+   `models.py`) so they flow through the same pipeline, multiple-testing and vault.
+4. Clustered (by date) bootstrap for event studies; `slow` test marker.
+5. Historical options data adapter (ORATS / Cboe DataShop) → earnings straddle hypothesis
+   (framed for rejection: implied moves > realised after spreads).

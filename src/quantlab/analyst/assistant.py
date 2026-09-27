@@ -92,7 +92,7 @@ class ResearchAssistant:
         return ("Current candidates: " + ", ".join(f"{s['Signal_ID']} ({s['Status']})" for s in sigs)) if sigs else ""
 
     def _sim_note(self) -> str:
-        return (" NOTE: all results so far come from SIMULATED data and are not evidence about real markets."
+        return ("\n\nNOTE: all results so far come from SIMULATED data and are not evidence about real markets."
                 if self.fb.uses_only_simulated_data() else "")
 
     # ------------------------------------------------------------------------------------------
