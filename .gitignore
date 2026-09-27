@@ -6,6 +6,6 @@ __pycache__/
 .coverage
 htmlcov/
 # Local data, registry and generated reports never go to git
-data/
-!data/.gitkeep
+/data/
+!/data/.gitkeep
 .env
