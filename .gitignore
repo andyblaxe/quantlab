@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.hypothesis/
+.coverage
+htmlcov/
+# Local data, registry and generated reports never go to git
+data/
+!data/.gitkeep
+.env

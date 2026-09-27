@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "quantlab"
+version = "0.1.0"
+description = "Local quantitative trading research laboratory (research first; no live trading)."
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=2.0",
+  "pandas>=2.2",
+  "scipy>=1.13",
+  "statsmodels>=0.14",
+  "scikit-learn>=1.5",
+  "duckdb>=1.1",
+  "pyarrow>=16",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.3",
+  "exchange_calendars>=4.5",
+  "typer>=0.12",
+  "fastapi>=0.110",
+  "uvicorn>=0.30",
+  "jinja2>=3.1",
+  "plotly>=5.22",
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "hypothesis>=6", "pytest-cov>=5"]
+ml = ["lightgbm>=4.3"]
+
+[project.scripts]
+quantlab = "quantlab.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/quantlab"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["error::FutureWarning"]
