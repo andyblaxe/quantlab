@@ -118,18 +118,24 @@ class TiingoProvider(DataProvider):
             if float(r.get("divCash", 0.0) or 0.0) > 0:
                 acts.append((r["session"], "dividend", float(r["divCash"])))
         actions = pd.DataFrame(acts, columns=["ex_date", "action", "value"])
-        if len(actions):
-            actions["symbol"] = symbol
-            # announcement time unknown: conservatively treat as known at the ex-date open
-            actions["available_at"] = cal.session_opens(pd.DatetimeIndex(actions["ex_date"]))
-            actions["source"] = "tiingo"
-            actions = actions[["symbol", "ex_date", "action", "value", "available_at", "source"]]
-        return bars, actions
+        # explicit dtypes so symbols with no actions don't turn the concatenated columns into object
+        actions["ex_date"] = pd.to_datetime(actions["ex_date"])
+        actions["value"] = actions["value"].astype(float)
+        actions["symbol"] = symbol
+        # announcement time unknown: conservatively treat as known at the ex-date open
+        actions["available_at"] = (cal.session_opens(pd.DatetimeIndex(actions["ex_date"])) if len(actions)
+                                   else pd.Series(dtype="datetime64[ns, UTC]"))
+        actions["source"] = "tiingo"
+        return bars, actions[["symbol", "ex_date", "action", "value", "available_at", "source"]]
 
     def _fetch(self, sym, start, end):
-        r = http_get(self.URL.format(ticker=sym.lower()),
-                     params={"startDate": start, "endDate": end, "token": self._key()})
-        return self.parse(r.json(), sym, get_settings().bar_publication_delay_min)
+        # bars and corporate actions come from the same response: fetch once per (symbol, range)
+        cache = self.__dict__.setdefault("_cache", {})
+        if (sym, start, end) not in cache:
+            r = http_get(self.URL.format(ticker=sym.lower()),
+                         params={"startDate": start, "endDate": end, "token": self._key()})
+            cache[(sym, start, end)] = self.parse(r.json(), sym, get_settings().bar_publication_delay_min)
+        return cache[(sym, start, end)]
 
     def get_daily_bars(self, symbols, start, end):
         frames = [self._fetch(s, start, end)[0] for s in symbols]

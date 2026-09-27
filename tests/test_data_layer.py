@@ -121,6 +121,19 @@ def test_store_is_write_once_and_verifies_integrity(tmp_path, small_market):
         st.load("bars_daily", h1)
 
 
+def test_store_roundtrip_survives_dtype_changes(tmp_path):
+    # object string columns come back from Parquet as str under pandas 3; the hash must still match
+    df = pd.DataFrame({"symbol": pd.Series(["A", "B"], dtype=object),
+                       "ex_date": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+                       "action": pd.Series(["dividend", "split"], dtype=object),
+                       "value": [0.5, 2.0],
+                       "available_at": pd.to_datetime(["2024-01-02 14:30", "2024-01-03 14:30"], utc=True),
+                       "source": pd.Series(["test", "test"], dtype=object)})
+    st = DataStore(tmp_path)
+    h = st.save("corporate_actions", Dataset("corporate_actions", df, Provenance(DataLabel.REAL, "test")))
+    assert len(st.load("corporate_actions", h).frame) == 2
+
+
 def test_store_refuses_invalid_data_unless_forced(tmp_path):
     df = _bars([("A", "2024-01-02", 10, 9, 9, 10.5, 100)])
     ds = Dataset("bad", df, Provenance(DataLabel.REAL, "test"))

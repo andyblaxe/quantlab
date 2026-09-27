@@ -15,6 +15,7 @@ Layout::
 
 from __future__ import annotations
 
+import io
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,6 +52,11 @@ class DataStore:
         report = self._validate(table, ds, actions)
         if not report.ok and not force:
             raise DataValidationError(report)
+        # hash the frame exactly as Parquet will return it, so load()'s integrity check holds even
+        # when the round trip changes dtypes (e.g. object → str under pandas 3)
+        buf = io.BytesIO()
+        ds.frame.to_parquet(buf, index=False)
+        ds = Dataset(ds.name, pd.read_parquet(io.BytesIO(buf.getvalue())), ds.provenance)
         h = ds.content_hash
         tdir = self.root / table
         tdir.mkdir(parents=True, exist_ok=True)
@@ -58,7 +64,7 @@ class DataStore:
         manifest = tdir / f"{h}.manifest.json"
         if not pq.exists():
             tmp = pq.with_suffix(".tmp")
-            ds.frame.to_parquet(tmp, index=False)
+            tmp.write_bytes(buf.getvalue())
             tmp.rename(pq)
             manifest.write_text(json.dumps({
                 "table": table,
