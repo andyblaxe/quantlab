@@ -314,10 +314,18 @@ class ResearchPipeline:
         family = self._family_pvalues(spec.family, hid, train["p_primary"])
         tr_daily = _window(run.daily_net, *self.bounds["train"])
         sr = tr_daily.mean() / tr_daily.std() if tr_daily.std() > 0 else np.nan
+        # Criterion: DSR against the best of N *skill-less* trials, using the null sampling dispersion of
+        # the Sharpe ratio. The empirical dispersion across our (heterogeneous, cost-dominated) trials is
+        # reported as a diagnostic only: it conflates differences in costs/structure with luck and would
+        # penalise genuine discoveries (see RESEARCH_METHODOLOGY.md §4).
         trials = self._trial_sharpes()
-        dsr = deflated_sharpe_ratio(sr, len(tr_daily), n_trials=max(self.reg.count("hypotheses"), 1),
-                                    sr_std_across_trials=float(np.std(trials)) if len(trials) >= 5 else None,
+        n_trials = max(self.reg.count("hypotheses"), 1)
+        dsr = deflated_sharpe_ratio(sr, len(tr_daily), n_trials=n_trials, sr_std_across_trials=None,
                                     skew=float(tr_daily.skew()), kurt=float(tr_daily.kurt() + 3))
+        if len(trials) >= 5:
+            emp = deflated_sharpe_ratio(sr, len(tr_daily), n_trials=n_trials, sr_std_across_trials=float(np.std(trials)),
+                                        skew=float(tr_daily.skew()), kurt=float(tr_daily.kurt() + 3))
+            dsr["diagnostic_empirical_dispersion"] = emp
         stress: dict[str, Any] = {}
         cost_run = self._run(dev, spec, cost=get_cost_model(spec.cost_profile).scaled(crit.cost_stress_multiplier))
         ct = cost_run.trades

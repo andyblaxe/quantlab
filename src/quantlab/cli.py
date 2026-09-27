@@ -177,6 +177,47 @@ def demo(evaluate_generated: bool = True) -> None:
     typer.echo(f"demo registry: {ws.root / 'registry.sqlite'}")
 
 
+def _fb(demo: bool):
+    from quantlab.analyst.facts import FactBase
+    ws = _ws(demo)
+    return ws, FactBase(ws.registry, ws.artifacts)
+
+
+@app.command()
+def report(mode: str = typer.Option("plain", help="plain | quant"), demo: bool = False) -> None:
+    """Generate and save the Research Report (includes what changed since the last one)."""
+    from quantlab.analyst.reports import build_research_report, save_report
+    ws, fb = _fb(demo)
+    out = save_report(ws.registry, build_research_report(fb, mode), "research", mode, ws.reports_dir)
+    typer.echo(json.dumps(out, indent=2))
+
+
+@app.command("strategy-report")
+def strategy_report(ref: str, mode: str = typer.Option("plain", help="plain | quant"), demo: bool = False) -> None:
+    """Generate and save the Strategy Research Report for a strategy/hypothesis (e.g. 4, SIG-000004)."""
+    from quantlab.analyst.reports import build_strategy_report, save_report
+    ws, fb = _fb(demo)
+    out = save_report(ws.registry, build_strategy_report(fb, ref, mode), "strategy", f"{ref}_{mode}", ws.reports_dir)
+    typer.echo(json.dumps(out, indent=2))
+
+
+@app.command()
+def ask(question: str, demo: bool = False) -> None:
+    """Ask the Research Assistant about the platform's own research (answers cite record IDs)."""
+    from quantlab.analyst.assistant import ResearchAssistant
+    _, fb = _fb(demo)
+    typer.echo(ResearchAssistant(fb).ask(question).text)
+
+
+@app.command()
+def dashboard(demo: bool = False, port: int = 8765) -> None:
+    """Serve the local dashboard on 127.0.0.1 (read-only views over the research record)."""
+    import uvicorn
+
+    from quantlab.dashboard.app import create_app
+    uvicorn.run(create_app(demo=demo), host="127.0.0.1", port=port, log_level="warning")
+
+
 @app.command()
 def calibrate(n_null: int = 10, n_power: int = 3, demo_dir: bool = True) -> None:
     """Measure the pipeline's false-positive rate (null markets) and power (planted effect)."""

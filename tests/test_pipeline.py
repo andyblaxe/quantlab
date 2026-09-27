@@ -100,3 +100,23 @@ def test_experiment_is_reproducible(tmp_path):
         assert a[part]["trades_net"] == b[part]["trades_net"]
         assert a[part]["p_primary"] == b[part]["p_primary"]
     assert a["monte_carlo"]["historical"]["1000"]["p_ruin"] == b["monte_carlo"]["historical"]["1000"]["p_ruin"]
+
+
+def test_dsr_not_inflated_by_heterogeneous_bad_trials(tmp_path):
+    """Regression (2026-09-27): cost-dominated, very negative-Sharpe trials must not raise the DSR bar
+    for a genuine effect. The criterion uses the null sampling dispersion of the Sharpe ratio."""
+    reg, pipe = _pipeline(tmp_path, ar1=-0.45)
+    losers = []
+    for seg in range(5):
+        s = _spec(name=f"overnight loser {seg}", strategy="segment_hold", family="calendar",
+                  params={"segment": "overnight", "conditions": [["zret(h=1,vol_n=63)", ">", -5.0 + seg]]},
+                  param_neighbors=[], cost_profile="per_share_broker")
+        losers.append(register_hypothesis(reg, s))
+    for h in losers:
+        pipe.evaluate(h)
+    hid = register_hypothesis(reg, _spec())
+    out = pipe.evaluate(hid)
+    dsr = out["results"]["deflated_sharpe"]
+    assert dsr["dsr"] >= 0.95, dsr
+    assert "diagnostic_empirical_dispersion" in dsr
+    assert out["signal_status"] == "VALIDATING", out["conclusion"]

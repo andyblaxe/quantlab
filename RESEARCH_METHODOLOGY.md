@@ -71,7 +71,7 @@ effective sample size, and:
 | Concentration | Does one year produce > 40% of P&L? | P&L by entry year |
 | Parameter sensitivity | Do pre-declared neighbouring parameters also work? | ≥ 70% net-positive |
 | Multiple testing | Is it significant given everything else tried in its family? | Benjamini–Yekutieli (arbitrary dependence); untested hypotheses count as p = 1 |
-| Deflated Sharpe | Does the Sharpe beat the luckiest of N null strategies? | Bailey & López de Prado; N = all hypotheses ever registered |
+| Deflated Sharpe | Does the Sharpe beat the luckiest of N null strategies? | Bailey & López de Prado; N = all hypotheses ever registered; dispersion = null sampling s.d. of the Sharpe (the empirical cross-trial dispersion is reported as a diagnostic only, because our trials are heterogeneous — cost-dominated strategies with very negative Sharpes inflated it and made the bar unreachable for genuine effects; found and fixed 2026-09-27) |
 | Regime breakdown | Where does it fail? | trend (200-day), volatility (VIX vs 3y median), market drawdown > 20%, year; cells < 10 flagged |
 | Stability | Strengthening, stable, weakening, disappeared? | slope of trade returns over time; first vs second half |
 | Capacity | Feasible at $100 … $1M? | whole-share affordability, participation vs ADV |

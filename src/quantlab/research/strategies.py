@@ -133,10 +133,9 @@ def segment_run(panel, params, symbols, cost: CostModel, capital: float, max_con
     intraday) or is unconditional/calendar-based; conditions are evaluated at t-1 accordingly.
     """
     seg = params["segment"]
+    if seg not in ("overnight", "intraday"):
+        raise ValueError("segment must be overnight or intraday")
     cache: dict = {}
-    mask = None
-    if params.get("conditions"):
-        mask = _restrict(_conditions_mask(panel, params["conditions"], cache), symbols).fillna(False).astype(bool)
     o, c = panel["open"][symbols], panel["close"][symbols]
     raw_o, raw_c = panel["raw_open"][symbols], panel["raw_close"][symbols]
     vol = panel["raw_volume"][symbols]
@@ -144,29 +143,37 @@ def segment_run(panel, params, symbols, cost: CostModel, capital: float, max_con
     dvol = panel["ret"][symbols].rolling(21, min_periods=5).std()
     idx = c.index
     notional = capital / max_concurrent
+    # rows indexed by decision session d; entry e = d+1; exit x = e+1 (overnight) or e (intraday)
+    if seg == "overnight":
+        entry, exit_, raw_entry = c.shift(-1), o.shift(-2), raw_c.shift(-1)
+        ok = (vol.shift(-1) > 0) & (vol.shift(-2) > 0)
+        e_sess, x_sess = pd.Series(idx, index=idx).shift(-1), pd.Series(idx, index=idx).shift(-2)
+    else:
+        entry, exit_, raw_entry = o.shift(-1), c.shift(-1), raw_o.shift(-1)
+        ok = vol.shift(-1) > 0
+        e_sess = x_sess = pd.Series(idx, index=idx).shift(-1)
+    if params.get("conditions"):
+        ok &= _restrict(_conditions_mask(panel, params["conditions"], cache), symbols).fillna(False).astype(bool)
+    gross = exit_ / entry - 1.0
+    ok &= gross.notna()
     rows = []
     for sym in symbols:
-        for i in range(1, len(idx) - 1):
-            if seg == "overnight":
-                # decide at close of i-1 (info through i-1), enter at close of i, exit at open of i+1
-                d, e, x = i - 1, i, i + 1
-                entry, exit_ = c[sym].iloc[e], o[sym].iloc[x]
-                raw_entry = raw_c[sym].iloc[e]
-            elif seg == "intraday":
-                d, e, x = i - 1, i, i
-                entry, exit_ = o[sym].iloc[e], c[sym].iloc[x]
-                raw_entry = raw_o[sym].iloc[e]
-            else:
-                raise ValueError("segment must be overnight or intraday")
-            if mask is not None and not mask[sym].iloc[d]:
-                continue
-            if not (vol[sym].iloc[e] > 0 and vol[sym].iloc[x] > 0) or not np.isfinite(entry) or not np.isfinite(exit_):
-                continue
-            g = exit_ / entry - 1.0
-            cf = float(cost.round_trip_frac(notional, raw_entry, adv[sym].iloc[d], dvol[sym].iloc[d]))
-            rows.append((sym, idx[d], idx[e], idx[x], 1.0, raw_entry, g, cf, g - cf, notional / adv[sym].iloc[d]))
-    tr = pd.DataFrame(rows, columns=["symbol", "signal_session", "entry_session", "exit_session", "direction",
-                                     "entry_price_raw", "gross_ret", "cost_frac", "net_ret", "participation"])
+        m = ok[sym].to_numpy()
+        if not m.any():
+            continue
+        d_idx = np.nonzero(m)[0]
+        cf = cost.round_trip_frac(notional, raw_entry[sym].to_numpy()[d_idx], adv[sym].to_numpy()[d_idx],
+                                  dvol[sym].to_numpy()[d_idx])
+        g = gross[sym].to_numpy()[d_idx]
+        part = notional / adv[sym].to_numpy()[d_idx]
+        rows.append(pd.DataFrame({"symbol": sym, "signal_session": idx[d_idx], "entry_session": e_sess.to_numpy()[d_idx],
+                                  "exit_session": x_sess.to_numpy()[d_idx], "direction": 1.0,
+                                  "entry_price_raw": raw_entry[sym].to_numpy()[d_idx], "gross_ret": g,
+                                  "cost_frac": cf, "net_ret": g - cf, "participation": part}))
+    cols = ["symbol", "signal_session", "entry_session", "exit_session", "direction", "entry_price_raw", "gross_ret",
+            "cost_frac", "net_ret", "participation"]
+    tr = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=cols)
+    tr = tr.sort_values(["entry_session", "symbol"]).reset_index(drop=True)
     # daily book: one segment per day per symbol, equal slots
     dg = tr.groupby("exit_session")["gross_ret"].sum().reindex(idx, fill_value=0.0) / max(len(symbols), 1)
     dn = tr.groupby("exit_session")["net_ret"].sum().reindex(idx, fill_value=0.0) / max(len(symbols), 1)

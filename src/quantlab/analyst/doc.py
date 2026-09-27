@@ -59,9 +59,17 @@ class Doc:
                 out.append("\n".join(lines) if rows else "_(no rows)_")
             elif b.kind == "chart":
                 out.append(f"_[chart: {b.extra.get('caption', '')} — see HTML version]_")
+            elif b.kind == "html":
+                continue
         return "\n\n".join(out) + "\n"
 
     def to_html(self, plotly_src: str = "plotly.min.js") -> str:
+        body, has_chart = self.body_html()
+        script = f'<script src="{plotly_src}"></script>' if has_chart else ""
+        return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{html.escape(self.title)}</title>{script}<style>{REPORT_CSS}</style></head><body><main>{body}</main></body></html>"""
+
+    def body_html(self) -> tuple[str, bool]:
         esc = lambda x: html.escape(str(x))
         parts = []
         first_chart = True
@@ -86,9 +94,14 @@ class Doc:
                                                               config={"displaylogo": False, "responsive": True})
                              + f"<figcaption>{esc(b.extra.get('caption', ''))}</figcaption></figure>")
                 first_chart = False
-        script = f'<script src="{plotly_src}"></script>' if not first_chart else ""
-        return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{esc(self.title)}</title>{script}<style>{REPORT_CSS}</style></head><body><main>{''.join(parts)}</main></body></html>"""
+            elif b.kind == "html":
+                parts.append(b.content)  # trusted, internally generated markup only (forms, links)
+        return "".join(parts), not first_chart
+
+    def raw_html(self, markup: str):
+        """Internally generated markup (never user- or data-supplied text)."""
+        self.blocks.append(Block("html", markup))
+        return self
 
 
 REPORT_CSS = """

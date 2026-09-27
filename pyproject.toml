@@ -24,6 +24,7 @@ dependencies = [
   "jinja2>=3.1",
   "plotly>=5.22",
   "httpx>=0.27",
+  "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
@@ -39,4 +40,4 @@ packages = ["src/quantlab"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-filterwarnings = ["error::FutureWarning"]
+filterwarnings = ["error::FutureWarning", "ignore::DeprecationWarning:fastapi.testclient"]

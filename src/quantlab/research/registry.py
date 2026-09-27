@@ -16,6 +16,7 @@ import hashlib
 import json
 import sqlite3
 import subprocess
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -103,7 +104,9 @@ class Registry:
         self.path = Path(path)
         if str(path) != ":memory:":
             self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._con = sqlite3.connect(str(path), isolation_level=None)
+        # one connection shared across threads (dashboard worker pool); all access serialised by a lock
+        self._lock = threading.RLock()
+        self._con = sqlite3.connect(str(path), isolation_level=None, check_same_thread=False)
         self._con.row_factory = sqlite3.Row
         self._con.execute("PRAGMA journal_mode=WAL" if str(path) != ":memory:" else "PRAGMA journal_mode=MEMORY")
         self._init_schema()
@@ -127,13 +130,18 @@ class Registry:
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:
-        self._con.execute("BEGIN IMMEDIATE")
-        try:
-            yield self._con
-            self._con.execute("COMMIT")
-        except BaseException:
-            self._con.execute("ROLLBACK")
-            raise
+        with self._lock:
+            self._con.execute("BEGIN IMMEDIATE")
+            try:
+                yield self._con
+                self._con.execute("COMMIT")
+            except BaseException:
+                self._con.execute("ROLLBACK")
+                raise
+
+    def _query(self, sql: str, params=()) -> list:
+        with self._lock:
+            return self._con.execute(sql, params).fetchall()
 
     @staticmethod
     def _row_hash(table: str, prev_hash: str, rid: str, created_at: str, cols: dict, payload_json: str) -> str:
@@ -168,7 +176,8 @@ class Registry:
         return d
 
     def get(self, table: str, rid: str) -> dict:
-        row = self._con.execute(f"SELECT * FROM {table} WHERE id = ?", (rid,)).fetchone()
+        rows = self._query(f"SELECT * FROM {table} WHERE id = ?", (rid,))
+        row = rows[0] if rows else None
         if row is None:
             raise KeyError(f"{table}: no record {rid}")
         return self._decode(row)
@@ -187,7 +196,7 @@ class Registry:
         sql += f" ORDER BY seq {'DESC' if order.upper() == 'DESC' else 'ASC'}"
         if limit:
             sql += f" LIMIT {int(limit)}"
-        return [self._decode(r) for r in self._con.execute(sql, params).fetchall()]
+        return [self._decode(r) for r in self._query(sql, params)]
 
     def count(self, table: str, **where: Any) -> int:
         return len(self.find(table, **where))
@@ -198,7 +207,7 @@ class Registry:
         for table, (_, allowed) in TABLES.items():
             prev = GENESIS
             bad = []
-            for row in self._con.execute(f"SELECT * FROM {table} ORDER BY seq").fetchall():
+            for row in self._query(f"SELECT * FROM {table} ORDER BY seq"):
                 cols = {c: row[c] for c in allowed}
                 expect = self._row_hash(table, prev, row["id"], row["created_at"], cols, row["payload"])
                 if row["prev_hash"] != prev or row["row_hash"] != expect:
