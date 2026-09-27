@@ -229,10 +229,12 @@ def _xs_rank_mom(lookback, skip):
 # ---------------------------------------------------------------------------------------------
 # Calendar features (known in advance, from the exchange calendar)
 # ---------------------------------------------------------------------------------------------
-@feature_family("turn_of_month", defaults={"before": 1, "after": 3}, lookback=lambda q: 0, category="calendar",
-                description="1 if the *next* session is within the turn-of-month window "
-                            "(last `before` sessions of a month through the first `after`), else 0.")
-def _tom(before, after):
+@feature_family("turn_of_month", defaults={"before": 1, "after": 3, "lead": 1}, lookback=lambda q: 0,
+                category="calendar",
+                description="1 if the session `lead` sessions ahead is within the turn-of-month window "
+                            "(last `before` sessions of a month through the first `after`), else 0. "
+                            "Use lead=2 with next_close execution to hold exactly the flagged session.")
+def _tom(before, after, lead):
     def f(p):
         idx = p["close"].index
         # Uses the exchange calendar, which is published in advance — not future panel rows.
@@ -245,7 +247,7 @@ def _tom(before, after):
         pos_from_start = s.groupby(month).cumcount() + 1
         pos_from_end = s.groupby(month).cumcount(ascending=False) + 1
         in_window = ((pos_from_start <= after) | (pos_from_end <= before)).astype(float)
-        nxt = in_window.shift(-1).reindex(idx)
+        nxt = in_window.shift(-lead).reindex(idx)
         return pd.DataFrame(np.repeat(nxt.to_numpy()[:, None], p["close"].shape[1], axis=1),
                             index=idx, columns=p["close"].columns)
     return f

@@ -1,0 +1,9 @@
+# Project split plan for REAL data. Decided on 2026-09-27, before any real data was examined.
+# Changing it later is recorded as a project event and flagged in every subsequent report.
+#   TRAIN       : data start      → 2012-12-31   (includes 2000-02 and 2008-09 bear markets)
+#   VALIDATION  : 2013-01 (+embargo) → 2018-12-31
+#   UNTOUCHED   : 2019-01 (+embargo) → present   (includes 2020 crash and 2022 bear market)
+[split]
+train_end = "2012-12-31"
+validation_end = "2018-12-31"
+embargo_sessions = 21
