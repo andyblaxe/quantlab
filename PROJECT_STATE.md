@@ -1,6 +1,7 @@
 # PROJECT_STATE.md
 
-_Last updated: 2026-09-27, end of the first build session (Phases 1–7 built; Phase 8 blocked on data)._
+_Last updated: 2026-09-27, second session (Phase 8 started on this Mac: real data ingested, program v1
+evaluated at development stage; EDGAR adapter in progress)._
 
 This is the hand-off document. A new session should be able to continue from here without the
 conversation history. Vocabulary: **IMPLEMENTED** (code exists) · **TESTED** (automated tests cover
@@ -8,13 +9,27 @@ it) · **SIMULATED** (only exercised on synthetic data) · **PLANNED** (not buil
 
 ## 1. Research findings
 
-**No research findings on real markets exist.** No real market data has been ingested. The build
-environment's network policy blocks the free data hosts (query1.finance.yahoo.com, stooq.com,
-fred.stlouisfed.org), so every number produced so far comes from SIMULATED synthetic markets. Those
-numbers validate the machinery; they are not evidence about markets.
+Program v1 (10 pre-registered hypotheses, `research/program.py`, PLAN.md §12) was registered
+(H-000001…H-000010) and evaluated at **development stage only** on REAL data (Tiingo bars + Cboe VIX,
+see §7) on 2026-09-27. The untouched test partition (after 2018 + embargo) was **not** opened for any
+hypothesis.
 
-The pre-registered research program v1 (10 hypotheses, `research/program.py`, PLAN.md §12) is
-committed to git and has **not** been run on real data.
+| ID | Hypothesis | Result | Where it stopped |
+|---|---|---|---|
+| H-000001 | Time-series momentum (multi-asset ETFs) | REJECTED | screening: train p-value |
+| H-000002 | SPY 200-day MA filter | REJECTED | screening: train p-value |
+| H-000003 | SPY golden/death cross | REJECTED | screening: train p-value |
+| H-000004 | Short-term reversal in index ETFs within an uptrend | REJECTED | passed screening; failed walk-forward and BY multiple testing |
+| H-000005 | Bollinger bands beyond z-scored returns | REJECTED | screening: net mean ≤ 0, p-value |
+| H-000006 | SPY overnight drift after costs | REJECTED | screening: net mean ≤ 0, p-value |
+| H-000007 | Volatility risk premium (measurement) | SUPPORTED | estimate 0.01144, BY q = 0.00036, same sign over the development period |
+| H-000008 | VIX term-structure inversion → higher realised vol (measurement) | INCONCLUSIVE | only 20 independent observations (VIX3M starts ~2009) |
+| H-000009 | Sector ETF cross-sectional momentum | REJECTED | screening: net mean ≤ 0, p-value |
+| H-000010 | Turn-of-the-month in SPY | REJECTED | screening: train p-value |
+
+Reading: no trading hypothesis in v1 shows an after-cost edge on these ETFs. H-000007 is a measurement;
+a positive average premium is **not** evidence that selling options is profitable (needs option bid/ask
+data). Caveats: 20-symbol static universe of today's ETFs (SURVIVORSHIP_RISK flag).
 
 ## 2. What is built
 
@@ -57,7 +72,10 @@ committed to git and has **not** been run on real data.
 | Paper broker, forward ledger, forward-vs-history, CUSUM degradation, LIVE_ELIGIBLE check, live lock | `paper/` | IMPLEMENTED, TESTED; no real-time quote feed |
 | CLI | `cli.py` | IMPLEMENTED; data-fetch commands untested live |
 
-Tests: `cd quantlab && .venv/bin/python -m pytest` → 178 passed (~4 min; the pipeline tests dominate).
+Tests: `.venv/bin/python -m pytest` (from the repo root) → 179 passed (~3 min; the pipeline tests dominate).
+
+Environment (this Mac): Python 3.12 venv at `.venv`, created with uv (`~/.local/bin/uv venv --python 3.12`,
+then `uv pip install -e '.[dev,ml]'`). Resolved to **pandas 3.0.6**; the full suite passes on it.
 
 ## 3. Machinery calibration and demo (SIMULATED)
 
@@ -76,7 +94,7 @@ Tests: `cd quantlab && .venv/bin/python -m pytest` → 178 passed (~4 min; the p
 
 ## 4. What is simulated / what uses real data
 
-Simulated: everything that produced numbers. Real data: nothing yet.
+Simulated: §3 (calibration, demo). Real data: program v1 development-stage results in §1.
 
 ## 5. Bugs found and fixed this session (recorded for auditability)
 
@@ -90,11 +108,20 @@ Simulated: everything that produced numbers. Real data: nothing yet.
    25%, OTM/near-ATM); surfaces use reliable quotes only.
 4. Segment (overnight) strategy too slow (Python loop); vectorised.
 5. Registry not usable from the dashboard's thread pool; now thread-safe.
+6. **`src/quantlab/data/` was never committed** (first session): the unanchored `.gitignore` rule
+   `data/` matched it, so fresh clones could not import. Recovered from
+   `credit-research-lab@recover-data-package`; rule anchored to `/data/` (commit e2cc99d).
+7. Tiingo adapter: symbols without corporate actions returned untyped empty frames ⇒ concatenated
+   `ex_date`/`value` became object and failed validation. Fixed; also one request per symbol (5bb4ba6).
+8. Store integrity check failed on data it had just saved under pandas 3 (object string columns reload
+   as `str`, changing the content hash). The store now hashes the frame as Parquet returns it; regression
+   test added (5bb4ba6). The pre-fix store was archived at `data/store_archive_hash_bug_20260927`.
 
 ## 6. Known limitations / open issues
 
-- Free-provider adapters have never hit live services (network blocked here).
-- No earnings-date / EDGAR adapter yet ⇒ earnings strategies cannot be researched yet.
+- Stooq is blocked by a bot challenge (use Tiingo). FRED adapter has a working key but no v1 series use it.
+- Cboe VIX3M history starts ~2009, which starves H-000008 (INCONCLUSIVE).
+- EDGAR earnings-date adapter in progress (see §8).
 - No historical options data ⇒ option strategies cannot be backtested (analytics only). Model-priced
   chains are labelled SIMULATED and must never be used as evidence of option mispricing.
 - Relative-value and ML modules are tools; no hypothesis templates use them yet.
@@ -113,17 +140,22 @@ Simulated: everything that produced numbers. Real data: nothing yet.
 
 ## 7. Current data providers
 
-Configured and working: synthetic (SIMULATED). Ready but untested live: Stooq (no key), Tiingo
-(`TIINGO_API_KEY`), FRED/ALFRED (`FRED_API_KEY`), Cboe indices (no key). Paid options/intraday/
+Working live (2026-09-27): Tiingo daily bars + dividends/splits (`TIINGO_API_KEY`; free tier, keep
+requests low), Cboe VIX/VIX3M (no key), FRED/ALFRED key verified (`FRED_API_KEY`), EDGAR user agent set
+(`EDGAR_USER_AGENT`). Stooq: blocked by a bot challenge. Synthetic: SIMULATED.
+
+Stored (local `data/store`): `bars_daily` 1c54f7fe8a66 (20 ETFs, 132,677 rows, from each ETF's launch to
+2026-09-25; 1 warning: 3 zero-volume bars), `corporate_actions` b09f31b09981 (2,421 rows, 10 splits),
+`macro_series` VIX 6479851c7c53 (9,247 rows), VIX3M 236d37344f90 (4,281 rows). Splits verified (no
+spurious −50% returns); all |daily return| > 15% fall on known crisis dates. Paid options/intraday/
 estimates/PIT-membership providers: interface only.
 
 ## 8. Next development tasks (in priority order)
 
-1. **Get real data** — run on a machine with internet (or allow the hosts in this environment's
-   network settings): `quantlab init`, `data fetch --provider tiingo`, `data fetch-macro`, then
-   `research register-program v1` and `research evaluate --all-registered`. Inspect validation
-   warnings first. This is Phase 8 and produces the first real findings.
-2. EDGAR 8-K Item 2.02 adapter (earnings announcement timestamps) + PEAD hypothesis via event study.
+1. ~~Get real data~~ — done 2026-09-27: `quantlab init`, `data fetch --provider tiingo`,
+   `data fetch-macro`, `research register-program --name v1`, `research evaluate --all-registered`.
+   Nothing in v1 reached FROZEN, so no untouched test is pending.
+2. **In progress:** EDGAR 8-K Item 2.02 adapter (earnings announcement timestamps) + PEAD hypothesis via event study.
 3. Hypothesis templates for pairs/spreads (using `relative_value.py`) and ML-model hypotheses (using
    `models.py`) so they flow through the same pipeline, multiple-testing and vault.
 4. Clustered (by date) bootstrap for event studies; `slow` test marker.
